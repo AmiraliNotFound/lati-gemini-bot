@@ -15,9 +15,11 @@ The bot is calibrated out-of-the-box with a witty, teasing, and sarcastic Persia
 * **🛡️ Secure Configuration**: Zero hardcoded secrets. Fully configured via environment variables and loaded asynchronously.
 * **📊 Robust Admin Control Panel**:
   * `/admin` – Configure model ID, limits, timeout, and persona instruction on the fly.
+  * **Specials Management**: Dynamically assign custom system instructions to specific Telegram usernames.
   * `/admin stats` – Read live data stats (total chats, total messages, DB size).
   * `/admin broadcast <msg>` – Send immediate broadcast updates to all active users.
-* **🐳 Dockerized Deployment**: Run with a single command on any VPS using Docker and Docker Compose with persistent database storage.
+* **🐳 Dockerized Deployment**: Run with a single command on any VPS using Docker.
+  * **Lazy Event Loop Binding**: Implements dynamic async client initialization to prevent runtime crashes during container redeployments.
 * **📜 Production Logging**: Captures logs to both the terminal and rotating `bot.log` files.
 
 ---
@@ -82,6 +84,15 @@ Your database will persist inside the `./data` directory on the VPS automaticall
 #### 5. Verify Logs
 ```bash
 docker-compose logs -f --tail=50
+```
+
+#### Troubleshooting Updates (`KeyError: ContainerConfig`)
+If you are using the older `docker-compose` (hyphenated) and encounter a `KeyError: ContainerConfig` crash when deploying new code, it is due to an incompatibility with modern Docker engines. To bypass it:
+```bash
+# Clean the old container state first
+docker-compose down
+# Rebuild and run fresh
+docker-compose up -d --build
 ```
 
 ---
@@ -168,5 +179,8 @@ Administrators defined in the `.env` configuration can execute parameters inside
 | `/admin set_limit <number>` | Configures historical context window limit |
 | `/admin set_timeout <float>` | Timeout threshold for AI responses in seconds |
 | `/admin set_instruction <text>` | Overwrites the system persona/prompt |
+| `/admin add_special <username> <instruction>` | Creates or updates a special user with a custom system prompt override |
+| `/admin remove_special <username>` | Removes a special user's custom override |
+| `/admin list_special` | Displays all registered special users |
 | `/admin stats` | Outputs total messages processed, unique chat IDs, and SQLite database file size |
 | `/admin broadcast <text>` | Instantly broadcasts a message to every active chat saved in the database |
