@@ -32,9 +32,8 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = f"بنال {sender_name} کارت چیه؟ تگ کن یا ریپلای بزن جوابتو بدم 🗿🤙"
         
         if is_private:
-            text += "\n\nسازنده این ربات و سورس‌کد: [Amirali Navidi](https://github.com/amiralinavidi/lati-gemini-bot)"
             keyboard = [
-                [InlineKeyboardButton("🔗 گیت‌هاب پروژه (سورس)", url="https://github.com/amiralinavidi/lati-gemini-bot")]
+                [InlineKeyboardButton("🔗 سورس ربات (گیت‌هاب)", url="https://github.com/AmiraliNotFound/lati-gemini-bot")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
