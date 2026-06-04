@@ -31,6 +31,7 @@ def main():
     # Register command handlers
     application.add_handler(CommandHandler("start", handlers.start_handler))
     application.add_handler(CommandHandler("admin", handlers.admin_handler))
+    application.add_handler(CommandHandler("tldr", handlers.tldr_handler))
     
     # Message Pipeline Routing: support text, photo, and voice messages
     message_filter = filters.TEXT | filters.PHOTO | filters.VOICE

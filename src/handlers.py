@@ -1,5 +1,6 @@
 import logging
 import asyncio
+import random
 from telegram import Update
 from telegram.ext import ContextTypes
 from google import genai
@@ -52,6 +53,7 @@ async def admin_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "▫️ `/admin set_model <model-string>`\n"
             "▫️ `/admin set_limit <integer>`\n"
             "▫️ `/admin set_timeout <float>`\n"
+            "▫️ `/admin set_chance <float>` (Random roast probability: 0.0 to 1.0)\n"
             "▫️ `/admin set_instruction <prompt-text>`\n\n"
             "✨ *Specials Management:*\n"
             "▫️ `/admin add_special <username> <custom-instruction>`\n"
@@ -164,11 +166,68 @@ async def admin_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await database.save_config_key(config.DB_FILE, "TIMEOUT", value)
         await update.message.reply_text(f"✅ آستانه زمانی قطع اتصال تغییر کرد به: `{value}` ثانیه", parse_mode="Markdown")
         
+    elif action == "set_chance":
+        try:
+            val = float(value)
+            if not (0.0 <= val <= 1.0): raise ValueError
+        except ValueError:
+            await update.message.reply_text("❌ خطا: شانس تیکه‌اندازی باید عددی بین 0.0 و 1.0 باشد.")
+            return
+        await database.save_config_key(config.DB_FILE, "RANDOM_ROAST_CHANCE", value)
+        await update.message.reply_text(f"✅ شانس تیکه‌اندازی تصادفی روی `{value}` تنظیم شد.", parse_mode="Markdown")
+        
     elif action == "set_instruction":
         await database.save_config_key(config.DB_FILE, "SYSTEM_INSTRUCTION", value)
         await update.message.reply_text("✅ دستورالعمل پرسونای سیستم با موفقیت به‌روزرسانی شد.")
     else:
         await update.message.reply_text("❌ دستور نامعتبر است. از راهنمای پنل استفاده کن.")
+
+async def tldr_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Summarizes the drama and main topics of the chat history in Persian slang."""
+    if not update.message:
+        return
+        
+    chat_id = update.message.chat_id
+    await context.bot.send_chat_action(chat_id=chat_id, action="typing")
+    
+    # Get up to 150 messages for a robust TL;DR
+    history = await database.get_chat_history(config.DB_FILE, chat_id, limit=150)
+    if not history:
+        await update.message.reply_text("هیچ دیتایی تو این چت ثبت نشده که بخوام خلاصه‌اش کنم! بنالید تا ببینم چخبره 🗿")
+        return
+        
+    transcript_lines = []
+    for role, name, text in history:
+        if role == "user":
+            transcript_lines.append(f"{name}: {text}")
+            
+    chat_transcript = "\n".join(transcript_lines)
+    
+    prompt = (
+        f"CHAT HISTORICAL TRANSCRIPT:\n"
+        f"{chat_transcript}\n\n"
+        f"TASK:\n"
+        f"Summarize the drama, gossip, and main topics of this group chat history in 3 or 4 bullet points. "
+        f"Keep your tone entirely Persian, completely informal, lative/Tehrani slang, and playfully roast the participants based on their messages. "
+        f"Do NOT be polite or bookish. Output ONLY the summary without any prefix."
+    )
+    
+    try:
+        client = get_ai_client()
+        model_id = config.runtime_config.get("MODEL_ID", "gemini-2.5-flash")
+        timeout_threshold = float(config.runtime_config.get("TIMEOUT", 12.0))
+        
+        response = await asyncio.wait_for(
+            client.models.generate_content(
+                model=model_id,
+                contents=[prompt]
+            ),
+            timeout=timeout_threshold
+        )
+        await update.message.reply_text(response.text if response.text else "نتونستم بخونمش، یه جای کار میلنگه.")
+    except Exception as e:
+        logger.error(f"TLDR generation failed: {e}")
+        await update.message.reply_text("مغزم ارور داد از بس حرف مفت زدین... دفعه بعد 🚶‍♂️")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Processes message history pipelines, handles text/media targets, and fires requests to GenAI."""
@@ -200,8 +259,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     is_private = update.message.chat.type == "private"
     
+    random_chance = float(config.runtime_config.get("RANDOM_ROAST_CHANCE", 0.02))
+    triggered_randomly = False
+    
     if not (is_private or is_tagged or is_reply_to_bot):
-        return
+        # Roll the dice for an unprovoked roast if it's a group chat message
+        if random.random() < random_chance and user_text:
+            triggered_randomly = True
+        else:
+            return
 
     # Signal typing interface status
     await context.bot.send_chat_action(chat_id=chat_id, action="typing")

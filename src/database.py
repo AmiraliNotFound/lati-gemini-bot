@@ -57,14 +57,13 @@ async def store_message(db_path: str, chat_id: int, role: str, sender_name: str,
             "INSERT INTO messages (chat_id, role, sender_name, text) VALUES (?, ?, ?, ?)",
             (chat_id, role, sender_name, text)
         )
-        limit = int(runtime_config.get("CONTEXT_LIMIT", 12))
-        # Keep limit * 2 messages in db to have buffer history
+        # Keep up to 200 messages in db for /tldr summarization
         await db.execute('''
             DELETE FROM messages WHERE id NOT IN (
                 SELECT id FROM messages WHERE chat_id = ? 
                 ORDER BY timestamp DESC LIMIT ?
             ) AND chat_id = ?
-        ''', (chat_id, limit * 2, chat_id))
+        ''', (chat_id, 200, chat_id))
         await db.commit()
 
 async def get_chat_history(db_path: str, chat_id: int, limit: int) -> list:
