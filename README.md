@@ -9,6 +9,8 @@ The bot is calibrated out-of-the-box with a witty, teasing, and sarcastic Persia
 ## ✨ Features
 
 * **🧠 Advanced Context Management**: Uses `aiosqlite` to store message histories per chat dynamically. Prunes context buffers efficiently to keep Gemini response latencies low.
+  * **TL;DR Group Summarization**: Type `/tldr` in any group to get a snappy, sarcastic Persian summary of the last 150 messages of drama.
+* **🎭 Random Unprovoked Roasts**: The bot will randomly jump into group chats (with a configurable probability) to roast users without being tagged, making it feel truly alive.
 * **📸 Multimodal Capabilities**: 
   * **Images**: Send photos to the bot, and it will analyze and roast/respond to them in character.
   * **Voice Messages**: Send voice notes; the bot downloads and processes the audio natively through Gemini.
@@ -168,6 +170,17 @@ sudo journalctl -u gemini-bot.service -f -n 50
 
 ---
 
+## 💬 General Commands
+
+These commands can be used by anyone in a group chat where the bot is active:
+
+| Command | Action / Parameter Description |
+| :--- | :--- |
+| `/start` | Cheeky entry point command greeting |
+| `/tldr` | Summarizes the drama and main topics of the recent chat history (up to 150 messages) in Persian slang |
+
+---
+
 ## 🛠️ Admin Commands
 
 Administrators defined in the `.env` configuration can execute parameters inside the bot's private message screen:
@@ -178,6 +191,7 @@ Administrators defined in the `.env` configuration can execute parameters inside
 | `/admin set_model <model_id>` | Changes Gemini model ID (e.g. `gemini-2.5-flash`) |
 | `/admin set_limit <number>` | Configures historical context window limit |
 | `/admin set_timeout <float>` | Timeout threshold for AI responses in seconds |
+| `/admin set_chance <float>` | Random unprovoked roast probability (0.0 to 1.0) |
 | `/admin set_instruction <text>` | Overwrites the system persona/prompt |
 | `/admin add_special <username> <instruction>` | Creates or updates a special user with a custom system prompt override |
 | `/admin remove_special <username>` | Removes a special user's custom override |
