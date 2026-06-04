@@ -198,3 +198,11 @@ Administrators defined in the `.env` configuration can execute parameters inside
 | `/admin list_special` | Displays all registered special users |
 | `/admin stats` | Outputs total messages processed, unique chat IDs, and SQLite database file size |
 | `/admin broadcast <text>` | Instantly broadcasts a message to every active chat saved in the database |
+
+---
+
+## ⚠️ Disclaimer
+
+This bot is designed purely for entertainment and humorous banter among friends in private or controlled group settings. The AI is explicitly instructed to generate sarcastic, provocative, and insulting responses ("roasts"). 
+
+**The creator of this project is NOT responsible for any offense, emotional distress, or conflicts caused by the bot's outputs.** Please ensure all members of your group chat are comfortable with this type of humor before adding the bot. Do not use this bot inappropriately, maliciously, or for targeted harassment.

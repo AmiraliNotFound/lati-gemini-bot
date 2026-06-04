@@ -1,7 +1,7 @@
 import logging
 import asyncio
 import random
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from google import genai
 from google.genai import types
@@ -26,7 +26,24 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Cheeky entry point command greeting using dynamic user identification."""
     if update.message:
         sender_name = update.message.from_user.first_name or "رفیق"
-        await update.message.reply_text(f"بنال {sender_name} کارت چیه؟ تگ کن یا ریپلای بزن جوابتو بدم 🗿🤙")
+        is_private = update.message.chat.type == "private"
+        
+        reply_markup = None
+        text = f"بنال {sender_name} کارت چیه؟ تگ کن یا ریپلای بزن جوابتو بدم 🗿🤙"
+        
+        if is_private:
+            text += "\n\nسازنده این ربات و سورس‌کد: [Amirali Navidi](https://github.com/amiralinavidi/lati-gemini-bot)"
+            keyboard = [
+                [InlineKeyboardButton("🔗 گیت‌هاب پروژه (سورس)", url="https://github.com/amiralinavidi/lati-gemini-bot")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+        await update.message.reply_text(
+            text, 
+            reply_markup=reply_markup,
+            parse_mode="Markdown",
+            disable_web_page_preview=True
+        )
 
 async def admin_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Enables authenticated users to query or update system settings securely via private chat."""
