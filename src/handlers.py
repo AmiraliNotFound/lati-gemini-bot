@@ -47,6 +47,10 @@ async def admin_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "▫️ `/admin set_limit <integer>`\n"
             "▫️ `/admin set_timeout <float>`\n"
             "▫️ `/admin set_instruction <prompt-text>`\n\n"
+            "✨ *Specials Management:*\n"
+            "▫️ `/admin add_special <username> <custom-instruction>`\n"
+            "▫️ `/admin remove_special <username>`\n"
+            "▫️ `/admin list_special`\n\n"
             "📊 *Utility Commands:*\n"
             "▫️ `/admin stats` - Get database and user statistics\n"
             "▫️ `/admin broadcast <message>` - Send a message to all active chats"
@@ -96,6 +100,39 @@ async def admin_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    # Admin utility: List Specials
+    if action == "list_special":
+        specials = await database.get_special_users(config.DB_FILE)
+        if not specials:
+            await update.message.reply_text("ℹ️ هیچ کاربر ویژه‌ای ثبت نشده است.")
+            return
+        lines = ["✨ *فهرست کاربران ویژه و دستورالعمل‌های اختصاصی:*\n"]
+        for idx, (uname, instr) in enumerate(specials, 1):
+            lines.append(f"{idx}. `@{uname}`: `{instr}`")
+        await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+        return
+
+    # Admin utility: Remove Special
+    if action == "remove_special":
+        if len(args) < 2:
+            await update.message.reply_text("❌ خطا: یوزرنیم کاربر ویژه را وارد نکردی.")
+            return
+        special_username = args[1].lstrip("@")
+        await database.remove_special_user(config.DB_FILE, special_username)
+        await update.message.reply_text(f"✅ کاربر ویژه `@{special_username}` حذف شد.", parse_mode="Markdown")
+        return
+
+    # Admin utility: Add Special
+    if action == "add_special":
+        if len(args) < 3:
+            await update.message.reply_text("❌ خطا: باید یوزرنیم و دستورالعمل اختصاصی را وارد کنی.\nمثال: `/admin add_special username بسیار مهربان و باادب باش`")
+            return
+        special_username = args[1].lstrip("@")
+        special_instruction = " ".join(args[2:])
+        await database.add_special_user(config.DB_FILE, special_username, special_instruction)
+        await update.message.reply_text(f"✅ کاربر ویژه `@{special_username}` با دستورالعمل اختصاصی اضافه/ویرایش شد.", parse_mode="Markdown")
+        return
+
     if not value:
         await update.message.reply_text("❌ مقدار جدید رو برای ویرایش تنظیمات ارسال نکردی.")
         return
@@ -135,6 +172,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Extract user inputs: caption for photos, text for text messages
     user_text = update.message.text or update.message.caption or ""
     sender_name = update.message.from_user.first_name or "User"
+    sender_username = update.message.from_user.username
     chat_id = update.message.chat_id
     bot_username = context.bot.username
 
@@ -166,7 +204,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context_limit = int(config.runtime_config["CONTEXT_LIMIT"])
     timeout_threshold = float(config.runtime_config["TIMEOUT"])
     model_id = config.runtime_config["MODEL_ID"]
-    system_instruction = config.runtime_config["SYSTEM_INSTRUCTION"]
+    
+    # Check if sender is a special user with a custom instruction
+    special_instruction = None
+    if sender_username:
+        special_instruction = await database.get_special_user_instruction(config.DB_FILE, sender_username)
+        
+    system_instruction = special_instruction if special_instruction else config.runtime_config["SYSTEM_INSTRUCTION"]
 
     # 3. Pull historical sequence slices (Invert chronologically)
     history = await database.get_chat_history(config.DB_FILE, chat_id, context_limit)
@@ -238,3 +282,4 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Execution handling failure: {e}")
         await update.message.reply_text(f"سیستم ریپ زد {sender_name}، یه بار دیگه بگو 🚶‍♂️")
+

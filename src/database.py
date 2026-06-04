@@ -26,6 +26,12 @@ async def init_db(db_path: str):
                 value TEXT
             )
         ''')
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS special_users (
+                username TEXT PRIMARY KEY,
+                instruction TEXT
+            )
+        ''')
         await db.commit()
         
         # Populate config table if empty
@@ -103,3 +109,42 @@ async def get_all_chat_ids(db_path: str) -> list:
         async with db.execute("SELECT DISTINCT chat_id FROM messages") as cursor:
             rows = await cursor.fetchall()
             return [r[0] for r in rows]
+
+async def add_special_user(db_path: str, username: str, instruction: str):
+    """Saves or updates a user-specific system instruction in the database."""
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute(
+            "INSERT OR REPLACE INTO special_users (username, instruction) VALUES (?, ?)",
+            (username.strip().lower().lstrip("@"), instruction)
+        )
+        await db.commit()
+
+async def remove_special_user(db_path: str, username: str):
+    """Removes a user from the special_users database table."""
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute(
+            "DELETE FROM special_users WHERE username = ?",
+            (username.strip().lower().lstrip("@"),)
+        )
+        await db.commit()
+
+async def get_special_users(db_path: str) -> list:
+    """Retrieves all special users and their custom instructions."""
+    if not os.path.exists(db_path):
+        return []
+    async with aiosqlite.connect(db_path) as db:
+        async with db.execute("SELECT username, instruction FROM special_users") as cursor:
+            return await cursor.fetchall()
+
+async def get_special_user_instruction(db_path: str, username: str) -> str:
+    """Fetches custom instruction for a user if one is defined."""
+    if not username or not os.path.exists(db_path):
+        return None
+    async with aiosqlite.connect(db_path) as db:
+        async with db.execute(
+            "SELECT instruction FROM special_users WHERE username = ?",
+            (username.strip().lower(),)
+        ) as cursor:
+            row = await cursor.fetchone()
+            return row[0] if row else None
+
