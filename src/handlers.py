@@ -10,10 +10,16 @@ from src import database
 
 logger = logging.getLogger(__name__)
 
-# Initialize Google GenAI client
-ai_client = None
-if config.GEMINI_API_KEY:
-    ai_client = genai.Client(api_key=config.GEMINI_API_KEY).aio
+# Initialize Google GenAI client lazily to bind correctly to the running event loop
+_ai_client = None
+
+def get_ai_client():
+    global _ai_client
+    if _ai_client is None:
+        if not config.GEMINI_API_KEY:
+            raise ValueError("GEMINI_API_KEY is not configured.")
+        _ai_client = genai.Client(api_key=config.GEMINI_API_KEY).aio
+    return _ai_client
 
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Cheeky entry point command greeting using dynamic user identification."""
@@ -260,9 +266,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Proceed with text transcript prompt even if downloading media fails
 
     try:
-        # 5. Fire Async Client generate_content requests
+        # 5. Fire Async Client generate_content requests (instantiated lazily)
+        client = get_ai_client()
         response = await asyncio.wait_for(
-            ai_client.models.generate_content(
+            client.models.generate_content(
                 model=model_id,
                 contents=contents,
                 config=types.GenerateContentConfig(system_instruction=system_instruction)
