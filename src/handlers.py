@@ -236,12 +236,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     prompt_payload = (
         f"CONTEXT CLUE:\n"
-        f"You are inside a group chat environment. You are currently having a conversation with a friend named '{sender_name}'.\n\n"
+        f"You are inside a group chat environment. You are currently having a conversation with a user named '{sender_name}'.\n\n"
         f"CHAT HISTORICAL TRANSCRIPT:\n"
         f"{chat_transcript}\n\n"
         f"TASK:\n"
-        f"Formulate a direct reply to what '{sender_name}' stated or sent. Keep your roast smart, custom-tailored to their words/media, "
-        f"and reflective of a cool, sarcastic friend. Avoid blind, basic insults."
+        f"Formulate a direct reply to what '{sender_name}' stated or sent, strictly adhering to your system persona instruction."
     )
     contents.append(prompt_payload)
 

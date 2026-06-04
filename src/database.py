@@ -115,7 +115,7 @@ async def add_special_user(db_path: str, username: str, instruction: str):
     async with aiosqlite.connect(db_path) as db:
         await db.execute(
             "INSERT OR REPLACE INTO special_users (username, instruction) VALUES (?, ?)",
-            (username.strip().lower().lstrip("@"), instruction)
+            (username.strip().lstrip("@"), instruction)
         )
         await db.commit()
 
@@ -123,7 +123,7 @@ async def remove_special_user(db_path: str, username: str):
     """Removes a user from the special_users database table."""
     async with aiosqlite.connect(db_path) as db:
         await db.execute(
-            "DELETE FROM special_users WHERE username = ?",
+            "DELETE FROM special_users WHERE LOWER(username) = ?",
             (username.strip().lower().lstrip("@"),)
         )
         await db.commit()
@@ -142,7 +142,7 @@ async def get_special_user_instruction(db_path: str, username: str) -> str:
         return None
     async with aiosqlite.connect(db_path) as db:
         async with db.execute(
-            "SELECT instruction FROM special_users WHERE username = ?",
+            "SELECT instruction FROM special_users WHERE LOWER(username) = ?",
             (username.strip().lower(),)
         ) as cursor:
             row = await cursor.fetchone()
