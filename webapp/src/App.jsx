@@ -19,6 +19,10 @@ function App() {
   const [newSpecial, setNewSpecial] = useState({ username: '', instruction: '' });
   const [broadcastMsg, setBroadcastMsg] = useState('');
 
+  // UI state
+  const [toast, setToast] = useState(null);
+  const [confirmDialog, setConfirmDialog] = useState(null);
+
   useEffect(() => {
     try {
       WebApp.ready();
@@ -27,17 +31,19 @@ function App() {
       console.warn("Telegram WebApp SDK not ready:", e);
     }
     fetchData();
+    const interval = setInterval(fetchData, 5000); // Live update every 5s
+    return () => clearInterval(interval);
   }, []);
 
   const fetchData = async () => {
-    setLoading(true);
     try {
+      const t = Date.now(); // Prevent browser caching
       const [st, ch, conf, sp, bl] = await Promise.all([
-        axios.get(`${API_BASE}/stats`),
-        axios.get(`${API_BASE}/chats`),
-        axios.get(`${API_BASE}/config`),
-        axios.get(`${API_BASE}/specials`),
-        axios.get(`${API_BASE}/blocked`)
+        axios.get(`${API_BASE}/stats?t=${t}`),
+        axios.get(`${API_BASE}/chats?t=${t}`),
+        axios.get(`${API_BASE}/config?t=${t}`),
+        axios.get(`${API_BASE}/specials?t=${t}`),
+        axios.get(`${API_BASE}/blocked?t=${t}`)
       ]);
       setStats(st.data);
       setChats(ch.data);
@@ -50,23 +56,26 @@ function App() {
     setLoading(false);
   };
 
-  const myConfirm = (msg) => {
-    if (window.Telegram?.WebApp?.initData) {
-      return new Promise((resolve) => WebApp.showConfirm(msg, resolve));
-    }
-    return Promise.resolve(window.confirm(msg));
+  const showToast = (msg) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 3000);
   };
 
-  const myAlert = (msg) => {
-    if (window.Telegram?.WebApp?.initData) {
-      WebApp.showAlert(msg);
-    } else {
-      alert(msg);
+  const askConfirm = (msg) => {
+    return new Promise((resolve) => {
+      setConfirmDialog({ msg, resolve });
+    });
+  };
+
+  const handleConfirmClose = (result) => {
+    if (confirmDialog) {
+      confirmDialog.resolve(result);
+      setConfirmDialog(null);
     }
   };
 
   const handleBlock = async (chat) => {
-    const confirm = await myConfirm(`Block and leave chat ${chat.name}?`);
+    const confirm = await askConfirm(`Block and leave chat ${chat.name}?`);
     if (confirm) {
       try {
         await axios.post(`${API_BASE}/block`, { 
@@ -74,23 +83,23 @@ function App() {
           type: chat.chat_id < 0 ? 'group' : 'user',
           name: chat.name || String(chat.chat_id)
         });
-        myAlert("Blocked and left successfully!");
+        showToast("Blocked and left successfully!");
         fetchData();
       } catch (e) {
-        myAlert("Error blocking chat.");
+        showToast("Error blocking chat.");
       }
     }
   };
 
   const handleUnblock = async (targetId) => {
-    const confirm = await myConfirm(`Unblock this ID?`);
+    const confirm = await askConfirm(`Unblock this ID?`);
     if (confirm) {
       try {
         await axios.post(`${API_BASE}/unblock`, { target_id: targetId });
-        myAlert("Unblocked!");
+        showToast("Unblocked!");
         fetchData();
       } catch (e) {
-        myAlert("Error unblocking.");
+        showToast("Error unblocking.");
       }
     }
   };
@@ -98,53 +107,81 @@ function App() {
   const saveConfig = async () => {
     try {
       await axios.post(`${API_BASE}/config`, config);
-      myAlert("Config saved successfully!");
+      showToast("Config saved successfully!");
     } catch (e) {
-      myAlert("Error saving config.");
+      showToast("Error saving config.");
     }
   };
 
   const addSpecial = async () => {
-    if (!newSpecial.username || !newSpecial.instruction) return myAlert("Fill all fields");
+    if (!newSpecial.username || !newSpecial.instruction) return showToast("Fill all fields");
     try {
       await axios.post(`${API_BASE}/specials`, newSpecial);
       setNewSpecial({ username: '', instruction: '' });
-      myAlert("Special user added!");
+      showToast("Special user added!");
       fetchData();
     } catch (e) {
-      myAlert("Error adding special user.");
+      showToast("Error adding special user.");
     }
   };
 
   const removeSpecial = async (username) => {
-    const confirm = await myConfirm(`Remove ${username}?`);
+    const confirm = await askConfirm(`Remove ${username}?`);
     if (confirm) {
       try {
         await axios.post(`${API_BASE}/specials/delete`, { username });
-        myAlert("Removed!");
+        showToast("Removed!");
         fetchData();
       } catch (e) {
-        myAlert("Error removing user.");
+        showToast("Error removing user.");
       }
     }
   };
 
   const sendBroadcast = async () => {
-    if (!broadcastMsg) return myAlert("Message is empty");
-    const confirm = await myConfirm("Send this to ALL users and groups?");
+    if (!broadcastMsg) return showToast("Message is empty");
+    const confirm = await askConfirm("Send this to ALL users and groups?");
     if (confirm) {
       try {
         const res = await axios.post(`${API_BASE}/broadcast`, { message: broadcastMsg });
         setBroadcastMsg('');
-        myAlert(`Sent successfully to ${res.data.sent} out of ${res.data.total} chats.`);
+        showToast(`Sent successfully to ${res.data.sent} out of ${res.data.total} chats.`);
       } catch (e) {
-        myAlert("Broadcast failed.");
+        showToast("Broadcast failed.");
       }
     }
   };
 
   return (
     <div className="app-container">
+      {/* Toast Notification */}
+      {toast && (
+        <div style={{
+          position: 'fixed', top: 20, left: '50%', transform: 'translateX(-50%)',
+          background: 'rgba(255, 255, 255, 0.1)', backdropFilter: 'blur(10px)',
+          padding: '12px 24px', borderRadius: 30, color: '#fff', fontWeight: 600,
+          boxShadow: '0 4px 20px rgba(0,0,0,0.3)', zIndex: 9999, border: '1px solid rgba(255,255,255,0.2)'
+        }}>
+          {toast}
+        </div>
+      )}
+
+      {/* Confirm Modal */}
+      {confirmDialog && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9998
+        }}>
+          <div className="card" style={{margin: 20, width: '100%', maxWidth: 300, textAlign: 'center'}}>
+            <h3 style={{marginBottom: 20}}>{confirmDialog.msg}</h3>
+            <div style={{display: 'flex', gap: 10}}>
+              <button className="btn" style={{flex: 1, background: '#3b82f6'}} onClick={() => handleConfirmClose(true)}>Yes</button>
+              <button className="btn" style={{flex: 1, background: '#ef4444'}} onClick={() => handleConfirmClose(false)}>No</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="header">
         <h1>Lati Gemini Admin</h1>
       </div>
@@ -167,7 +204,7 @@ function App() {
         </div>
       </div>
 
-      {loading ? (
+      {loading && !stats.total_chats ? (
         <div style={{textAlign: 'center', marginTop: '40px'}}><RefreshCcw size={32} className="spinning" /></div>
       ) : (
         <>
@@ -278,7 +315,7 @@ function App() {
 
               <div className="input-group">
                 <label>Timeout (seconds)</label>
-                <input type="number" className="input" value={config.RESPONSE_TIMEOUT || ''} onChange={e => setConfig({...config, RESPONSE_TIMEOUT: e.target.value})} />
+                <input type="number" className="input" value={config.TIMEOUT || ''} onChange={e => setConfig({...config, TIMEOUT: e.target.value})} />
               </div>
 
               <div className="input-group">
