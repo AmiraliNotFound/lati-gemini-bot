@@ -14,7 +14,14 @@ async def post_init(application: Application) -> None:
     logger.info("Database and dynamic config successfully loaded inside active runtime loop.")
     from src import server
     await server.setup_server(application)
-    logger.info("Started Aiohttp Server inside Telegram post_init.")
+    
+    commands = [
+        ("start", "بیدار کردن ربات"),
+        ("help", "راهنمای استفاده و قابلیت‌ها"),
+        ("tldr", "خلاصه کردن پیام‌های گروه (۱۵۰ پیام آخر)")
+    ]
+    await application.bot.set_my_commands(commands)
+    logger.info("Database and Server initialized successfully. Commands registered.")
 
 def main():
     # Initialize logger configuration
@@ -31,8 +38,8 @@ def main():
     # Build Telegram Bot application
     application = Application.builder().token(config.TELEGRAM_TOKEN).post_init(post_init).build()
     
-    # Register command handlers
     application.add_handler(CommandHandler("start", handlers.start_handler))
+    application.add_handler(CommandHandler("help", handlers.help_handler))
     application.add_handler(CommandHandler("admin", handlers.admin_handler))
     application.add_handler(CommandHandler("tldr", handlers.tldr_handler))
     

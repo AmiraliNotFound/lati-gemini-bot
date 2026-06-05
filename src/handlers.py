@@ -1,6 +1,10 @@
 import logging
 import asyncio
 import random
+import re
+import os
+import uuid
+import yt_dlp
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import ContextTypes
 from google import genai
@@ -43,6 +47,21 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown",
             disable_web_page_preview=True
         )
+
+async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Provides a list of bot capabilities."""
+    if update.message:
+        help_text = (
+            "🤖 **راهنمای ربات لاتی جمنای**\n\n"
+            "من یه ربات هوشمندم که می‌تونم متن بخونم، عکس ببینم، و ویس گوش بدم. فقط کافیه تو گروه روم ریپلای کنی یا اسممو بیاری تا جوابتو بدم.\n\n"
+            "📌 **دستورات من:**\n"
+            "🔹 /start : بیدار کردن من\n"
+            "🔹 /help : همین پیامی که داری می‌خونی\n"
+            "🔹 /tldr : خلاصه‌سازی پیام‌های گروه (فقط تو گروه‌ها کار میکنه)\n\n"
+            "🎥 **دانلودر هوشمند:**\n"
+            "اگه لینک **اینستاگرام** یا **یوتوب** بفرستی، ویدیو رو مستقیم برات همینجا دانلود می‌کنم و می‌فرستم!"
+        )
+        await update.message.reply_text(help_text, parse_mode="Markdown")
 
 async def admin_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Enables authenticated users to query or update system settings securely via private chat."""
@@ -250,6 +269,37 @@ async def tldr_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"TLDR generation failed: {e}")
         await update.message.reply_text("مغزم ارور داد از بس حرف مفت زدین... دفعه بعد 🚶‍♂️")
 
+def sync_download_video(url: str, output_path: str):
+    ydl_opts = {
+        'outtmpl': output_path,
+        'format': 'best[ext=mp4]/best',
+        'noplaylist': True,
+        'quiet': True,
+        'max_filesize': 50000000,
+    }
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        ydl.download([url])
+
+async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_TYPE, url: str):
+    chat_id = update.message.chat_id
+    status_msg = await update.message.reply_text("⏳ دارم ویدیو رو میکشم بیرون... وایسا...")
+    
+    filename = f"video_{uuid.uuid4().hex}.mp4"
+    try:
+        await asyncio.to_thread(sync_download_video, url, filename)
+        if os.path.exists(filename):
+            with open(filename, 'rb') as video:
+                await context.bot.send_video(chat_id=chat_id, video=video, reply_to_message_id=update.message.message_id)
+            os.remove(filename)
+            await status_msg.delete()
+        else:
+            await status_msg.edit_text("❌ نتونستم دانلودش کنم، شاید حجمش زیاده یا پرایوته.")
+    except Exception as e:
+        logger.error(f"yt-dlp error: {e}")
+        await status_msg.edit_text("❌ نتونستم دانلودش کنم، یوتوب/اینستا گیر داده.")
+        if os.path.exists(filename):
+            os.remove(filename)
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Processes message history pipelines, handles text/media targets, and fires requests to GenAI."""
     if not update.message:
@@ -279,6 +329,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sender_username = update.message.from_user.username
     chat_id = update.message.chat_id
     bot_username = context.bot.username
+
+    # Detect Instagram/YouTube links and auto-download in background
+    url_match = re.search(r"(https?://(?:www\.)?(?:instagram\.com|youtube\.com|youtu\.be|x\.com|twitter\.com)[^\s]+)", user_text)
+    if url_match:
+        asyncio.create_task(download_and_send_video(update, context, url_match.group(1)))
 
     # Format the input label for the database log file
     log_text = user_text
