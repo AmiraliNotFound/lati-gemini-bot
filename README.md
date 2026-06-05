@@ -16,12 +16,13 @@ The bot is calibrated out-of-the-box with a witty, teasing, and sarcastic Persia
   * **Voice Messages**: Send voice notes; the bot downloads and processes the audio natively through Gemini.
 * **🛡️ Secure Configuration**: Zero hardcoded secrets. Fully configured via environment variables and loaded asynchronously.
 * **📊 Robust Admin Control Panel**:
-  * **Interactive Web App Dashboard**: Full GUI panel inside Telegram! Control stats, moderation, and settings visually.
-  * `/admin` – Configure model ID, limits, timeout, and persona instruction on the fly.
-  * **Moderation**: Block specific users or groups to prevent abuse (bot immediately leaves blocked groups).
-  * `/admin stats` – Read live data stats (total chats, total messages, DB size).
-  * `/admin broadcast <msg>` – Send immediate broadcast updates to all active users.
-* **🐳 Dockerized Deployment**: Run with a single command on any VPS using Docker.
+  * **✨ Interactive Web App Dashboard**: A full React-based GUI panel right inside Telegram! Features butter-smooth sliding animations, glassmorphism toast notifications, and dark-mode styling.
+    * **Stats Tab**: Live auto-updating system metrics (total chats, processed messages, DB size).
+    * **Mod Tab**: View all active chats with their real names and block/leave them with one click.
+    * **VIPs Tab**: Visual interface to add, edit, and remove Special Users and their custom personas.
+    * **Cast Tab**: Type a broadcast message and fire it to every single user/group instantly.
+    * **Conf Tab**: Adjust context limits, timeouts, model IDs, and system prompts on the fly.
+  * **Fallback Inline Commands**: Classic `/admin` inline commands are still fully supported.
   * **Lazy Event Loop Binding**: Implements dynamic async client initialization to prevent runtime crashes during container redeployments.
 * **📜 Production Logging**: Captures logs to both the terminal and rotating `bot.log` files.
 
