@@ -4,7 +4,12 @@ import random
 import re
 import os
 import uuid
-import yt_dlp
+
+try:
+    import yt_dlp
+except ImportError:
+    yt_dlp = None
+
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import ContextTypes
 from google import genai
@@ -270,6 +275,9 @@ async def tldr_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("مغزم ارور داد از بس حرف مفت زدین... دفعه بعد 🚶‍♂️")
 
 def sync_download_video(url: str, output_path: str):
+    if not yt_dlp:
+        raise ImportError("yt_dlp is not installed")
+        
     ydl_opts = {
         'outtmpl': output_path,
         'format': 'best[ext=mp4]/best',
@@ -294,6 +302,8 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
             await status_msg.delete()
         else:
             await status_msg.edit_text("❌ نتونستم دانلودش کنم، شاید حجمش زیاده یا پرایوته.")
+    except ImportError:
+        await status_msg.edit_text("❌ قابلیت دانلود فعال نیست! ادمین باید ربات رو دوباره Build کنه.")
     except Exception as e:
         logger.error(f"yt-dlp error: {e}")
         await status_msg.edit_text("❌ نتونستم دانلودش کنم، یوتوب/اینستا گیر داده.")
