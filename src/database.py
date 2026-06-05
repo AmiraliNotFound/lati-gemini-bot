@@ -40,6 +40,12 @@ async def init_db(db_path: str):
                 timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS chat_metadata (
+                chat_id INTEGER PRIMARY KEY,
+                chat_name TEXT
+            )
+        ''')
         await db.commit()
         
         # Populate config table if empty
@@ -184,19 +190,25 @@ async def is_blocked(db_path: str, target_id: int) -> bool:
         async with db.execute("SELECT 1 FROM blocked WHERE target_id = ?", (target_id,)) as cursor:
             return await cursor.fetchone() is not None
 
+async def save_chat_metadata(db_path: str, chat_id: int, chat_name: str):
+    """Saves the latest chat title."""
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute("INSERT OR REPLACE INTO chat_metadata (chat_id, chat_name) VALUES (?, ?)", (chat_id, chat_name))
+        await db.commit()
+
 async def get_recent_chats(db_path: str, limit: int = 50) -> list:
     """Gets recently active chats for the admin panel."""
     if not os.path.exists(db_path): return []
     async with aiosqlite.connect(db_path) as db:
-        # Group by chat_id, get the most recent message, determine if it's a private chat or group
+        # Join with chat_metadata to get the real group/user name
         query = '''
-            SELECT chat_id, MAX(timestamp) as last_active,
-            (SELECT sender_name FROM messages m2 WHERE m2.chat_id = m.chat_id AND role = 'user' ORDER BY timestamp DESC LIMIT 1) as recent_name
+            SELECT m.chat_id, MAX(m.timestamp) as last_active, cm.chat_name
             FROM messages m
-            GROUP BY chat_id
+            LEFT JOIN chat_metadata cm ON m.chat_id = cm.chat_id
+            GROUP BY m.chat_id
             ORDER BY last_active DESC LIMIT ?
         '''
         async with db.execute(query, (limit,)) as cursor:
-            return [{"chat_id": r[0], "last_active": r[1], "name": r[2]} for r in await cursor.fetchall()]
+            return [{"chat_id": r[0], "last_active": r[1], "name": r[2] or f"ID: {r[0]}"} for r in await cursor.fetchall()]
 
 

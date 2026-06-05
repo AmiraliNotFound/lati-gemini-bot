@@ -1,20 +1,24 @@
 import { useState, useEffect } from 'react';
 import WebApp from '@twa-dev/sdk';
-import { Activity, ShieldAlert, Settings, RefreshCcw } from 'lucide-react';
+import { Activity, ShieldAlert, Settings, RefreshCcw, Users, Megaphone } from 'lucide-react';
 import axios from 'axios';
 import './index.css';
 
-// For local dev, hardcode the API base url, otherwise relative.
 const API_BASE = import.meta.env.DEV ? 'http://localhost:8080/api' : '/api';
 
 function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [stats, setStats] = useState({ total_messages: 0, total_chats: 0, db_size_kb: 0 });
   const [chats, setChats] = useState([]);
+  const [specials, setSpecials] = useState([]);
+  const [blocked, setBlocked] = useState([]);
   const [config, setConfig] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Setup Axios with Telegram Web App initData
+  // Forms state
+  const [newSpecial, setNewSpecial] = useState({ username: '', instruction: '' });
+  const [broadcastMsg, setBroadcastMsg] = useState('');
+
   useEffect(() => {
     try {
       WebApp.ready();
@@ -28,50 +32,114 @@ function App() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      // In a real app we'd pass headers: { Authorization: `Bearer ${WebApp.initData}` }
-      // The server in server.py currently checks against TELEGRAM_TOKEN, which we don't have here.
-      // So let's just make the request. The server check_auth is disabled for CORS if not strictly enforced.
-      // Wait, in server.py I wrote check_auth that throws 401. I should remove check_auth in server.py or pass it.
-      // Since it's a proxy setup, we will just fetch it directly.
-      const statsRes = await axios.get(`${API_BASE}/stats`);
-      setStats(statsRes.data);
-      
-      const chatsRes = await axios.get(`${API_BASE}/chats`);
-      setChats(chatsRes.data);
-
-      const configRes = await axios.get(`${API_BASE}/config`);
-      setConfig(configRes.data);
-      
+      const [st, ch, conf, sp, bl] = await Promise.all([
+        axios.get(`${API_BASE}/stats`),
+        axios.get(`${API_BASE}/chats`),
+        axios.get(`${API_BASE}/config`),
+        axios.get(`${API_BASE}/specials`),
+        axios.get(`${API_BASE}/blocked`)
+      ]);
+      setStats(st.data);
+      setChats(ch.data);
+      setConfig(conf.data);
+      setSpecials(sp.data);
+      setBlocked(bl.data);
     } catch (error) {
       console.error("Error fetching data:", error);
     }
     setLoading(false);
   };
 
+  const myConfirm = (msg) => {
+    if (window.Telegram?.WebApp?.initData) {
+      return new Promise((resolve) => WebApp.showConfirm(msg, resolve));
+    }
+    return Promise.resolve(window.confirm(msg));
+  };
+
+  const myAlert = (msg) => {
+    if (window.Telegram?.WebApp?.initData) {
+      WebApp.showAlert(msg);
+    } else {
+      alert(msg);
+    }
+  };
+
   const handleBlock = async (chat) => {
-    WebApp.showConfirm(`Are you sure you want to block and leave chat ${chat.name || chat.chat_id}?`, async (confirm) => {
-      if (confirm) {
-        try {
-          await axios.post(`${API_BASE}/block`, { 
-            target_id: chat.chat_id, 
-            type: chat.chat_id < 0 ? 'group' : 'user',
-            name: chat.name || String(chat.chat_id)
-          });
-          WebApp.showAlert("Blocked and left the group successfully!");
-          fetchData();
-        } catch (e) {
-          WebApp.showAlert("Error blocking chat.");
-        }
+    const confirm = await myConfirm(`Block and leave chat ${chat.name}?`);
+    if (confirm) {
+      try {
+        await axios.post(`${API_BASE}/block`, { 
+          target_id: chat.chat_id, 
+          type: chat.chat_id < 0 ? 'group' : 'user',
+          name: chat.name || String(chat.chat_id)
+        });
+        myAlert("Blocked and left successfully!");
+        fetchData();
+      } catch (e) {
+        myAlert("Error blocking chat.");
       }
-    });
+    }
+  };
+
+  const handleUnblock = async (targetId) => {
+    const confirm = await myConfirm(`Unblock this ID?`);
+    if (confirm) {
+      try {
+        await axios.post(`${API_BASE}/unblock`, { target_id: targetId });
+        myAlert("Unblocked!");
+        fetchData();
+      } catch (e) {
+        myAlert("Error unblocking.");
+      }
+    }
   };
 
   const saveConfig = async () => {
     try {
       await axios.post(`${API_BASE}/config`, config);
-      WebApp.showAlert("Config saved successfully!");
+      myAlert("Config saved successfully!");
     } catch (e) {
-      WebApp.showAlert("Error saving config.");
+      myAlert("Error saving config.");
+    }
+  };
+
+  const addSpecial = async () => {
+    if (!newSpecial.username || !newSpecial.instruction) return myAlert("Fill all fields");
+    try {
+      await axios.post(`${API_BASE}/specials`, newSpecial);
+      setNewSpecial({ username: '', instruction: '' });
+      myAlert("Special user added!");
+      fetchData();
+    } catch (e) {
+      myAlert("Error adding special user.");
+    }
+  };
+
+  const removeSpecial = async (username) => {
+    const confirm = await myConfirm(`Remove ${username}?`);
+    if (confirm) {
+      try {
+        await axios.post(`${API_BASE}/specials/delete`, { username });
+        myAlert("Removed!");
+        fetchData();
+      } catch (e) {
+        myAlert("Error removing user.");
+      }
+    }
+  };
+
+  const sendBroadcast = async () => {
+    if (!broadcastMsg) return myAlert("Message is empty");
+    const confirm = await myConfirm("Send this to ALL users and groups?");
+    if (confirm) {
+      try {
+        const res = await axios.post(`${API_BASE}/broadcast`, { message: broadcastMsg });
+        setBroadcastMsg('');
+        myAlert(`Sent successfully to ${res.data.sent} out of ${res.data.total} chats.`);
+      } catch (e) {
+        myAlert("Broadcast failed.");
+      }
     }
   };
 
@@ -81,15 +149,21 @@ function App() {
         <h1>Lati Gemini Admin</h1>
       </div>
 
-      <div className="tabs">
+      <div className="tabs" style={{ flexWrap: 'wrap' }}>
         <div className={`tab ${activeTab === 'dashboard' ? 'active' : ''}`} onClick={() => setActiveTab('dashboard')}>
-          <Activity size={18} /> Dashboard
+          <Activity size={16} /> Stats
         </div>
         <div className={`tab ${activeTab === 'moderation' ? 'active' : ''}`} onClick={() => setActiveTab('moderation')}>
-          <ShieldAlert size={18} /> Moderation
+          <ShieldAlert size={16} /> Mod
+        </div>
+        <div className={`tab ${activeTab === 'specials' ? 'active' : ''}`} onClick={() => setActiveTab('specials')}>
+          <Users size={16} /> VIPs
+        </div>
+        <div className={`tab ${activeTab === 'broadcast' ? 'active' : ''}`} onClick={() => setActiveTab('broadcast')}>
+          <Megaphone size={16} /> Cast
         </div>
         <div className={`tab ${activeTab === 'settings' ? 'active' : ''}`} onClick={() => setActiveTab('settings')}>
-          <Settings size={18} /> Settings
+          <Settings size={16} /> Conf
         </div>
       </div>
 
@@ -118,23 +192,73 @@ function App() {
           )}
 
           {activeTab === 'moderation' && (
-            <div className="card">
-              <h2><ShieldAlert size={18}/> Active Chats (Block / Leave)</h2>
-              <p style={{fontSize: '12px', color: '#a1a1aa', marginBottom: '12px'}}>
-                Blocking a group will immediately force the bot to leave it.
-              </p>
-              {chats.map(chat => (
-                <div className="list-item" key={chat.chat_id}>
-                  <div className="item-info">
-                    <div className="item-name">{chat.name || 'Unknown User'}</div>
-                    <div className="item-sub">ID: {chat.chat_id}</div>
+            <>
+              <div className="card">
+                <h2><ShieldAlert size={18}/> Blocked Entities</h2>
+                {blocked.map(b => (
+                  <div className="list-item" key={b.id}>
+                    <div className="item-info">
+                      <div className="item-name">{b.name} <span style={{fontSize:10, opacity:0.5}}>({b.type})</span></div>
+                      <div className="item-sub">ID: {b.id}</div>
+                    </div>
+                    <button className="btn" onClick={() => handleUnblock(b.id)}>Unblock</button>
                   </div>
-                  <button className="btn btn-danger" onClick={() => handleBlock(chat)}>
-                    Block
-                  </button>
+                ))}
+                {blocked.length === 0 && <p style={{color: '#a1a1aa'}}>No blocked users/groups.</p>}
+              </div>
+
+              <div className="card">
+                <h2><ShieldAlert size={18}/> Recent Active Chats</h2>
+                <p style={{fontSize: '12px', color: '#a1a1aa', marginBottom: '12px'}}>
+                  Blocking a group forces the bot to leave immediately.
+                </p>
+                {chats.map(chat => (
+                  <div className="list-item" key={chat.chat_id}>
+                    <div className="item-info">
+                      <div className="item-name">{chat.name}</div>
+                      <div className="item-sub">ID: {chat.chat_id}</div>
+                    </div>
+                    <button className="btn btn-danger" onClick={() => handleBlock(chat)}>Block</button>
+                  </div>
+                ))}
+                {chats.length === 0 && <p style={{color: '#a1a1aa'}}>No active chats found.</p>}
+              </div>
+            </>
+          )}
+
+          {activeTab === 'specials' && (
+            <div className="card">
+              <h2><Users size={18}/> Special Users (Overrides)</h2>
+              <div className="input-group">
+                <input type="text" className="input" placeholder="Username (e.g. AmiraliNotFound)" value={newSpecial.username} onChange={e => setNewSpecial({...newSpecial, username: e.target.value})} />
+              </div>
+              <div className="input-group">
+                <textarea className="input" rows="3" placeholder="Custom persona instructions..." value={newSpecial.instruction} onChange={e => setNewSpecial({...newSpecial, instruction: e.target.value})}></textarea>
+              </div>
+              <button className="btn" style={{width: '100%', marginBottom: 16, justifyContent: 'center'}} onClick={addSpecial}>Add Special User</button>
+
+              <hr style={{borderColor: 'var(--border-color)', margin: '16px 0'}} />
+              
+              {specials.map(s => (
+                <div className="list-item" key={s.username} style={{alignItems: 'flex-start', flexDirection: 'column', gap: 8}}>
+                  <div style={{display:'flex', justifyContent:'space-between', width:'100%'}}>
+                    <div className="item-name">@{s.username}</div>
+                    <button className="btn btn-danger" style={{padding: '4px 8px'}} onClick={() => removeSpecial(s.username)}>Remove</button>
+                  </div>
+                  <div className="item-sub" style={{background: 'rgba(255,255,255,0.05)', padding: 8, borderRadius: 6}}>{s.instruction}</div>
                 </div>
               ))}
-              {chats.length === 0 && <p style={{color: '#a1a1aa'}}>No active chats found.</p>}
+            </div>
+          )}
+
+          {activeTab === 'broadcast' && (
+            <div className="card">
+              <h2><Megaphone size={18}/> Global Broadcast</h2>
+              <p style={{fontSize: '12px', color: '#a1a1aa', marginBottom: '12px'}}>
+                Send a message to every single user and group in the database.
+              </p>
+              <textarea className="input" rows="5" placeholder="Write your broadcast message here..." value={broadcastMsg} onChange={e => setBroadcastMsg(e.target.value)}></textarea>
+              <button className="btn" style={{width: '100%', marginTop: 12, justifyContent: 'center'}} onClick={sendBroadcast}>Send to All Active Chats</button>
             </div>
           )}
 
@@ -144,47 +268,31 @@ function App() {
               
               <div className="input-group">
                 <label>Model ID</label>
-                <input 
-                  type="text" 
-                  className="input" 
-                  value={config.MODEL_ID || ''} 
-                  onChange={e => setConfig({...config, MODEL_ID: e.target.value})} 
-                />
+                <input type="text" className="input" value={config.MODEL_ID || ''} onChange={e => setConfig({...config, MODEL_ID: e.target.value})} />
               </div>
 
               <div className="input-group">
-                <label>Context Limit (Messages)</label>
-                <input 
-                  type="number" 
-                  className="input" 
-                  value={config.CONTEXT_LIMIT || ''} 
-                  onChange={e => setConfig({...config, CONTEXT_LIMIT: e.target.value})} 
-                />
+                <label>Context Limit</label>
+                <input type="number" className="input" value={config.CONTEXT_LIMIT || ''} onChange={e => setConfig({...config, CONTEXT_LIMIT: e.target.value})} />
+              </div>
+
+              <div className="input-group">
+                <label>Timeout (seconds)</label>
+                <input type="number" className="input" value={config.RESPONSE_TIMEOUT || ''} onChange={e => setConfig({...config, RESPONSE_TIMEOUT: e.target.value})} />
               </div>
 
               <div className="input-group">
                 <label>Random Roast Chance: {config.RANDOM_ROAST_CHANCE}</label>
-                <input 
-                  type="range" 
-                  min="0" max="1" step="0.01" 
-                  className="range-slider" 
-                  value={config.RANDOM_ROAST_CHANCE || 0} 
-                  onChange={e => setConfig({...config, RANDOM_ROAST_CHANCE: e.target.value})} 
-                />
+                <input type="range" min="0" max="1" step="0.01" className="range-slider" value={config.RANDOM_ROAST_CHANCE || 0} onChange={e => setConfig({...config, RANDOM_ROAST_CHANCE: e.target.value})} />
               </div>
 
               <div className="input-group">
                 <label>System Persona Prompt</label>
-                <textarea 
-                  rows="6" 
-                  className="input" 
-                  value={config.SYSTEM_INSTRUCTION || ''}
-                  onChange={e => setConfig({...config, SYSTEM_INSTRUCTION: e.target.value})}
-                />
+                <textarea rows="6" className="input" value={config.SYSTEM_INSTRUCTION || ''} onChange={e => setConfig({...config, SYSTEM_INSTRUCTION: e.target.value})} />
               </div>
 
               <button className="btn" style={{width: '100%', justifyContent: 'center'}} onClick={saveConfig}>
-                Save Changes
+                Save Configuration
               </button>
             </div>
           )}

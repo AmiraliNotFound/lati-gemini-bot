@@ -255,6 +255,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message:
         return
 
+    chat_id = update.message.chat.id
+
     # 1. Enforce Blocks
     user_id = update.message.from_user.id
     if await database.is_blocked(config.DB_FILE, user_id):
@@ -267,6 +269,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception as e:
                 logger.error(f"Failed to leave blocked chat {chat_id}: {e}")
         return
+
+    chat_name = update.message.chat.title or update.message.chat.first_name or str(chat_id)
+    await database.save_chat_metadata(config.DB_FILE, chat_id, chat_name)
 
     # Extract user inputs: caption for photos, text for text messages
     user_text = update.message.text or update.message.caption or ""
