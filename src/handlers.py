@@ -343,7 +343,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Detect Instagram/YouTube links and auto-download in background
     url_match = re.search(r"(https?://(?:www\.)?(?:instagram\.com|youtube\.com|youtu\.be|x\.com|twitter\.com)[^\s]+)", user_text)
     if url_match:
-        asyncio.create_task(download_and_send_video(update, context, url_match.group(1)))
+        await download_and_send_video(update, context, url_match.group(1))
         return
 
     # Format the input label for the database log file
