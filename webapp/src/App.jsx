@@ -152,11 +152,14 @@ function App() {
     }
   };
 
+  const tabsList = ['dashboard', 'moderation', 'specials', 'broadcast', 'settings'];
+  const activeIndex = tabsList.indexOf(activeTab);
+
   return (
     <div className="app-container">
       {/* Toast Notification */}
       {toast && (
-        <div style={{
+        <div className="toast-message" style={{
           position: 'fixed', top: 20, left: '50%', transform: 'translateX(-50%)',
           background: 'rgba(255, 255, 255, 0.1)', backdropFilter: 'blur(10px)',
           padding: '12px 24px', borderRadius: 30, color: '#fff', fontWeight: 600,
@@ -168,15 +171,15 @@ function App() {
 
       {/* Confirm Modal */}
       {confirmDialog && (
-        <div style={{
+        <div className="modal-overlay" style={{
           position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
           display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9998
         }}>
-          <div className="card" style={{margin: 20, width: '100%', maxWidth: 300, textAlign: 'center'}}>
+          <div className="card modal-content" style={{margin: 20, width: '100%', maxWidth: 300, textAlign: 'center'}}>
             <h3 style={{marginBottom: 20}}>{confirmDialog.msg}</h3>
             <div style={{display: 'flex', gap: 10}}>
-              <button className="btn" style={{flex: 1, background: '#3b82f6'}} onClick={() => handleConfirmClose(true)}>Yes</button>
-              <button className="btn" style={{flex: 1, background: '#ef4444'}} onClick={() => handleConfirmClose(false)}>No</button>
+              <button className="btn" style={{flex: 1, background: '#3b82f6', justifyContent: 'center'}} onClick={() => handleConfirmClose(true)}>Yes</button>
+              <button className="btn" style={{flex: 1, background: '#ef4444', justifyContent: 'center'}} onClick={() => handleConfirmClose(false)}>No</button>
             </div>
           </div>
         </div>
@@ -186,21 +189,33 @@ function App() {
         <h1>Lati Gemini Admin</h1>
       </div>
 
-      <div className="tabs" style={{ flexWrap: 'wrap' }}>
+      <div className="tabs" style={{ position: 'relative', flexWrap: 'nowrap', overflow: 'hidden' }}>
+        <div style={{
+          position: 'absolute',
+          top: 4, bottom: 4,
+          left: `calc(4px + (100% - 8px) / 5 * ${activeIndex})`,
+          width: `calc((100% - 8px) / 5)`,
+          backgroundColor: 'var(--tg-theme-bg-color)',
+          borderRadius: '8px',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+          transition: 'all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1)',
+          zIndex: 0
+        }} />
+        
         <div className={`tab ${activeTab === 'dashboard' ? 'active' : ''}`} onClick={() => setActiveTab('dashboard')}>
-          <Activity size={16} /> Stats
+          <Activity size={16} /> <span>Stats</span>
         </div>
         <div className={`tab ${activeTab === 'moderation' ? 'active' : ''}`} onClick={() => setActiveTab('moderation')}>
-          <ShieldAlert size={16} /> Mod
+          <ShieldAlert size={16} /> <span>Mod</span>
         </div>
         <div className={`tab ${activeTab === 'specials' ? 'active' : ''}`} onClick={() => setActiveTab('specials')}>
-          <Users size={16} /> VIPs
+          <Users size={16} /> <span>VIPs</span>
         </div>
         <div className={`tab ${activeTab === 'broadcast' ? 'active' : ''}`} onClick={() => setActiveTab('broadcast')}>
-          <Megaphone size={16} /> Cast
+          <Megaphone size={16} /> <span>Cast</span>
         </div>
         <div className={`tab ${activeTab === 'settings' ? 'active' : ''}`} onClick={() => setActiveTab('settings')}>
-          <Settings size={16} /> Conf
+          <Settings size={16} /> <span>Conf</span>
         </div>
       </div>
 

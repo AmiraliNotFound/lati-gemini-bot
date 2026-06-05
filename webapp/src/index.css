@@ -13,6 +13,7 @@
   box-sizing: border-box;
   margin: 0;
   padding: 0;
+  -webkit-tap-highlight-color: transparent;
 }
 
 body {
@@ -68,12 +69,13 @@ body {
   align-items: center;
   justify-content: center;
   gap: 6px;
+  position: relative;
+  z-index: 1;
+  outline: none;
 }
 
 .tab.active {
-  background-color: var(--tg-theme-bg-color);
   color: var(--tg-theme-text-color);
-  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
 }
 
 .card {
@@ -173,14 +175,24 @@ body {
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
-  transition: opacity 0.2s;
+  transition: opacity 0.2s, transform 0.1s;
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  outline: none;
 }
 
 .btn:hover {
   opacity: 0.9;
+}
+
+.btn:active {
+  transform: scale(0.97);
+}
+
+.btn:focus-visible {
+  outline: 2px solid rgba(59, 130, 246, 0.5);
+  outline-offset: 2px;
 }
 
 .btn-danger {
@@ -261,6 +273,33 @@ body {
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
+}
+
+@keyframes toastSlideDown {
+  from { opacity: 0; transform: translate(-50%, -20px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+
+@keyframes modalFadeIn {
+  from { opacity: 0; transform: scale(0.92); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes modalOverlayFade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.modal-overlay {
+  animation: modalOverlayFade 0.2s ease-out forwards;
+}
+
+.modal-content {
+  animation: modalFadeIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}
+
+.toast-message {
+  animation: toastSlideDown 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
 }
 
 .spinning {
