@@ -450,7 +450,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         bot_response = response.text if response.text else "🗿 بنال ببینم چی میگی..."
         
         # Fallback strip prefix if Gemini disobeys
-        import re
         bot_response = re.sub(r"^Bot\s*\([^)]+\):\s*", "", bot_response).strip()
         
         # 6. Reply and log to DB

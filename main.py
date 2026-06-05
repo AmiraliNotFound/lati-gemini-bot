@@ -15,13 +15,17 @@ async def post_init(application: Application) -> None:
     from src import server
     await server.setup_server(application)
     
+    from telegram import BotCommand
     commands = [
-        ("start", "بیدار کردن ربات"),
-        ("help", "راهنمای استفاده و قابلیت‌ها"),
-        ("tldr", "خلاصه کردن پیام‌های گروه (۱۵۰ پیام آخر)")
+        BotCommand("start", "بیدار کردن ربات"),
+        BotCommand("help", "راهنمای استفاده و قابلیت‌ها"),
+        BotCommand("tldr", "خلاصه کردن پیام‌های گروه (۱۵۰ پیام آخر)")
     ]
-    await application.bot.set_my_commands(commands)
-    logger.info("Database and Server initialized successfully. Commands registered.")
+    try:
+        await application.bot.set_my_commands(commands)
+        logger.info("Database and Server initialized successfully. Commands registered.")
+    except Exception as e:
+        logger.error(f"Failed to register commands: {e}")
 
 def main():
     # Initialize logger configuration
