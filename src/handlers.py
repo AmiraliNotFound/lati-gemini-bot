@@ -345,7 +345,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"CHAT HISTORICAL TRANSCRIPT:\n"
         f"{chat_transcript}\n\n"
         f"TASK:\n"
-        f"Formulate a direct reply to what '{sender_name}' stated or sent, strictly adhering to your system persona instruction."
+        f"Formulate a direct reply to what '{sender_name}' stated or sent, strictly adhering to your system persona instruction.\n"
+        f"CRITICAL RULE: DO NOT prefix your response with 'Bot:' or your name. Just output the raw message content."
     )
     contents.append(prompt_payload)
 
@@ -382,6 +383,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         
         bot_response = response.text if response.text else "🗿 بنال ببینم چی میگی..."
+        
+        # Fallback strip prefix if Gemini disobeys
+        import re
+        bot_response = re.sub(r"^Bot\s*\([^)]+\):\s*", "", bot_response).strip()
         
         # 6. Reply and log to DB
         await update.message.reply_text(bot_response)

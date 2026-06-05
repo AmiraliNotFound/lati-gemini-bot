@@ -31,6 +31,7 @@ body {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  animation: fadeIn 0.4s ease-out forwards;
 }
 
 .header {
@@ -81,8 +82,16 @@ body {
   padding: 20px;
   margin-bottom: 16px;
   border: 1px solid var(--border-color);
-  box-shadow: 0 4px 20px rgba(0,0,0,0.1);
-  transition: transform 0.2s ease;
+  box-shadow: 0 8px 30px rgba(0,0,0,0.2);
+  transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.3s ease;
+  animation: slideUp 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+  opacity: 0;
+  transform: translateY(20px);
+}
+
+.card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.3);
 }
 
 .card h2 {
@@ -106,6 +115,12 @@ body {
   padding: 16px;
   text-align: center;
   border: 1px solid var(--border-color);
+  transition: transform 0.3s ease, background-color 0.3s;
+}
+
+.stat-box:hover {
+  transform: scale(1.02);
+  background-color: rgba(255,255,255,0.06);
 }
 
 .stat-value {
@@ -113,6 +128,7 @@ body {
   font-weight: 700;
   color: #3b82f6;
   margin-bottom: 4px;
+  animation: pulseValue 2s infinite alternate;
 }
 
 .stat-label {
@@ -218,4 +234,35 @@ body {
 ::-webkit-scrollbar-thumb {
   background: var(--border-color);
   border-radius: 10px;
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { 
+    opacity: 0; 
+    transform: translateY(20px); 
+  }
+  to { 
+    opacity: 1; 
+    transform: translateY(0); 
+  }
+}
+
+@keyframes pulseValue {
+  0% { text-shadow: 0 0 10px rgba(59, 130, 246, 0.2); }
+  100% { text-shadow: 0 0 20px rgba(59, 130, 246, 0.6); }
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.spinning {
+  animation: spin 1s linear infinite;
 }
