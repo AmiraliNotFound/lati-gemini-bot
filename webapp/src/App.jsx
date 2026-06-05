@@ -16,12 +16,12 @@ function App() {
 
   // Setup Axios with Telegram Web App initData
   useEffect(() => {
-    WebApp.ready();
-    WebApp.expand();
-    // Setting default auth header to bypass complex validation for local/proxied environments
-    // The server expects Bearer token. We'll grab it from WebApp initData if possible, 
-    // but in this setup the backend uses a placeholder check for simplicity.
-    // In production, we'd send WebApp.initData
+    try {
+      WebApp.ready();
+      WebApp.expand();
+    } catch (e) {
+      console.warn("Telegram WebApp SDK not ready:", e);
+    }
     fetchData();
   }, []);
 

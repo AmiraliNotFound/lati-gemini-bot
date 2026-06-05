@@ -64,6 +64,13 @@ async def unblock_target(request):
     await database.unblock_target(config.DB_FILE, target_id)
     return web.json_response({"status": "success"})
 
+async def index_handler(request):
+    frontend_dir = os.path.join(os.path.dirname(__file__), "..", "webapp", "dist")
+    index_file = os.path.join(frontend_dir, 'index.html')
+    if os.path.exists(index_file):
+        return web.FileResponse(index_file)
+    return web.Response(text="Webapp not built yet.", status=404)
+
 async def setup_server(bot_app):
     app = web.Application()
     app["bot_app"] = bot_app
@@ -87,10 +94,12 @@ async def setup_server(bot_app):
     cors.add(app.router.add_post('/api/block', block_target))
     cors.add(app.router.add_post('/api/unblock', unblock_target))
 
-    # Serve static frontend files
+    # Serve static frontend files and SPA root
+    app.router.add_get('/', index_handler)
+    
     frontend_dir = os.path.join(os.path.dirname(__file__), "..", "webapp", "dist")
     if os.path.exists(frontend_dir):
-        app.router.add_static('/', frontend_dir, name='static', show_index=True)
+        app.router.add_static('/', frontend_dir, name='static', show_index=False)
     
     runner = web.AppRunner(app)
     await runner.setup()
