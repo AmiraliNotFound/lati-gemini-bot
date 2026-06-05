@@ -16,8 +16,9 @@ The bot is calibrated out-of-the-box with a witty, teasing, and sarcastic Persia
   * **Voice Messages**: Send voice notes; the bot downloads and processes the audio natively through Gemini.
 * **🛡️ Secure Configuration**: Zero hardcoded secrets. Fully configured via environment variables and loaded asynchronously.
 * **📊 Robust Admin Control Panel**:
+  * **Interactive Web App Dashboard**: Full GUI panel inside Telegram! Control stats, moderation, and settings visually.
   * `/admin` – Configure model ID, limits, timeout, and persona instruction on the fly.
-  * **Specials Management**: Dynamically assign custom system instructions to specific Telegram usernames.
+  * **Moderation**: Block specific users or groups to prevent abuse (bot immediately leaves blocked groups).
   * `/admin stats` – Read live data stats (total chats, total messages, DB size).
   * `/admin broadcast <msg>` – Send immediate broadcast updates to all active users.
 * **🐳 Dockerized Deployment**: Run with a single command on any VPS using Docker.
@@ -75,13 +76,21 @@ Fill in:
 * `TELEGRAM_TOKEN` (from [@BotFather](https://t.me/BotFather))
 * `GEMINI_API_KEY` (from [Google AI Studio](https://aistudio.google.com))
 * `ALLOWED_ADMINS` (your username, e.g., `AmiraliNotFound`)
+* `WEBAPP_URL` (optional, e.g., `https://admin.yourdomain.com` — enables the Telegram Mini App dashboard button inside `/admin`)
 
 #### 4. Launch Bot Container
 Run the bot daemon in the background:
 ```bash
 docker-compose up -d --build
 ```
-Your database will persist inside the `./data` directory on the VPS automatically.
+Your database will persist inside the `./data` directory on the VPS automatically. The backend API for the WebApp will be exposed on port `8080`.
+
+#### 5. Cloudflare Tunnel / WebApp Setup
+If you want to use the Mini App Dashboard, you must serve the app over HTTPS. The easiest way is using a free Cloudflare Tunnel:
+1. Point your free domain (e.g., `admin.yourdomain.com`) to `http://localhost:8080` using `cloudflared`.
+2. Add `WEBAPP_URL=https://admin.yourdomain.com` to your `.env` file.
+3. Restart the bot (`docker-compose down && docker-compose up -d`).
+4. Now, typing `/admin` will show a shiny "🚀 Open Admin Dashboard" button!
 
 #### 5. Verify Logs
 ```bash

@@ -1,4 +1,12 @@
-# Use official Python slim image
+# Stage 1: Build the React webapp
+FROM node:20-alpine AS frontend-builder
+WORKDIR /app/webapp
+COPY webapp/package*.json ./
+RUN npm install
+COPY webapp/ ./
+RUN npm run build
+
+# Stage 2: Build the Python backend
 FROM python:3.11-slim
 
 # Set environment variables
@@ -8,7 +16,7 @@ ENV PYTHONUNBUFFERED=1
 # Set work directory
 WORKDIR /app
 
-# Install system dependencies (including build utilities if needed)
+# Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && apt-get clean \
@@ -18,9 +26,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy project files
+# Copy backend files
 COPY src/ ./src/
 COPY main.py .
+
+# Copy built frontend files from Stage 1
+COPY --from=frontend-builder /app/webapp/dist ./webapp/dist
+
+# Expose Web API port
+EXPOSE 8080
 
 # Run the bot application
 CMD ["python", "main.py"]

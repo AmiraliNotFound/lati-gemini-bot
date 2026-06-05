@@ -9,6 +9,7 @@ load_dotenv()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 DB_FILE = os.getenv("DB_FILE", "chat_history.db")
+WEBAPP_URL = os.getenv("WEBAPP_URL", "")
 
 # Parse comma-separated list of allowed admins (case-insensitive)
 allowed_admins_env = os.getenv("ALLOWED_ADMINS", "AmiraliNotFound")

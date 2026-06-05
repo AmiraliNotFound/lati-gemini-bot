@@ -32,6 +32,14 @@ async def init_db(db_path: str):
                 instruction TEXT
             )
         ''')
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS blocked (
+                target_id INTEGER PRIMARY KEY,
+                type TEXT,
+                name TEXT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
         await db.commit()
         
         # Populate config table if empty
@@ -146,4 +154,49 @@ async def get_special_user_instruction(db_path: str, username: str) -> str:
         ) as cursor:
             row = await cursor.fetchone()
             return row[0] if row else None
+
+async def block_target(db_path: str, target_id: int, target_type: str, name: str):
+    """Blocks a user or group."""
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute(
+            "INSERT OR REPLACE INTO blocked (target_id, type, name) VALUES (?, ?, ?)",
+            (target_id, target_type, name)
+        )
+        await db.commit()
+
+async def unblock_target(db_path: str, target_id: int):
+    """Unblocks a user or group."""
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute("DELETE FROM blocked WHERE target_id = ?", (target_id,))
+        await db.commit()
+
+async def get_blocked_targets(db_path: str) -> list:
+    """Retrieves all blocked entities."""
+    if not os.path.exists(db_path): return []
+    async with aiosqlite.connect(db_path) as db:
+        async with db.execute("SELECT target_id, type, name FROM blocked ORDER BY timestamp DESC") as cursor:
+            return [{"id": r[0], "type": r[1], "name": r[2]} for r in await cursor.fetchall()]
+
+async def is_blocked(db_path: str, target_id: int) -> bool:
+    """Checks if an ID is blocked."""
+    if not os.path.exists(db_path): return False
+    async with aiosqlite.connect(db_path) as db:
+        async with db.execute("SELECT 1 FROM blocked WHERE target_id = ?", (target_id,)) as cursor:
+            return await cursor.fetchone() is not None
+
+async def get_recent_chats(db_path: str, limit: int = 50) -> list:
+    """Gets recently active chats for the admin panel."""
+    if not os.path.exists(db_path): return []
+    async with aiosqlite.connect(db_path) as db:
+        # Group by chat_id, get the most recent message, determine if it's a private chat or group
+        query = '''
+            SELECT chat_id, MAX(timestamp) as last_active,
+            (SELECT sender_name FROM messages m2 WHERE m2.chat_id = m.chat_id AND role = 'user' ORDER BY timestamp DESC LIMIT 1) as recent_name
+            FROM messages m
+            GROUP BY chat_id
+            ORDER BY last_active DESC LIMIT ?
+        '''
+        async with db.execute(query, (limit,)) as cursor:
+            return [{"chat_id": r[0], "last_active": r[1], "name": r[2]} for r in await cursor.fetchall()]
+
 

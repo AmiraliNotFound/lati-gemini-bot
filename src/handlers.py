@@ -1,7 +1,7 @@
 import logging
 import asyncio
 import random
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import ContextTypes
 from google import genai
 from google.genai import types
@@ -79,7 +79,12 @@ async def admin_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "▫️ `/admin stats` - Get database and user statistics\n"
             "▫️ `/admin broadcast <message>` - Send a message to all active chats"
         )
-        await update.message.reply_text(help_text, parse_mode="Markdown")
+        reply_markup = None
+        if config.WEBAPP_URL:
+            keyboard = [[InlineKeyboardButton("🚀 Open Admin Dashboard", web_app=WebAppInfo(url=config.WEBAPP_URL))]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+        await update.message.reply_text(help_text, parse_mode="Markdown", reply_markup=reply_markup)
         return
 
     action = args[0].lower()
@@ -248,6 +253,19 @@ async def tldr_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Processes message history pipelines, handles text/media targets, and fires requests to GenAI."""
     if not update.message:
+        return
+
+    # 1. Enforce Blocks
+    user_id = update.message.from_user.id
+    if await database.is_blocked(config.DB_FILE, user_id):
+        return # Ignore blocked user
+
+    if await database.is_blocked(config.DB_FILE, chat_id):
+        if chat_id < 0: # It's a group
+            try:
+                await context.bot.leave_chat(chat_id)
+            except Exception as e:
+                logger.error(f"Failed to leave blocked chat {chat_id}: {e}")
         return
 
     # Extract user inputs: caption for photos, text for text messages

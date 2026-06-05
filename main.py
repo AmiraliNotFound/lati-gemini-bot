@@ -12,6 +12,9 @@ async def post_init(application: Application) -> None:
     """Safe post-initialization hook to run db setup inside the bot's native active loop."""
     await database.init_db(config.DB_FILE)
     logger.info("Database and dynamic config successfully loaded inside active runtime loop.")
+    from src import server
+    await server.setup_server(application)
+    logger.info("Started Aiohttp Server inside Telegram post_init.")
 
 def main():
     # Initialize logger configuration

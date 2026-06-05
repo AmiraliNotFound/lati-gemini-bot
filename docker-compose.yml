@@ -11,3 +11,5 @@ services:
       - ./data:/app/data
     environment:
       - DB_FILE=/app/data/chat_history.db
+    ports:
+      - "8080:8080"
