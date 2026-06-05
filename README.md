@@ -14,6 +14,7 @@ The bot is calibrated out-of-the-box with a witty, teasing, and sarcastic Persia
 * **📸 Multimodal Capabilities**: 
   * **Images**: Send photos to the bot, and it will analyze and roast/respond to them in character.
   * **Voice Messages**: Send voice notes; the bot downloads and processes the audio natively through Gemini.
+* **📥 Smart Media Downloader**: Automatically detects Instagram, YouTube, and Twitter links in chat. Downloads the actual video via `yt-dlp` and re-uploads it natively so nobody has to click the link!
 * **🛡️ Secure Configuration**: Zero hardcoded secrets. Fully configured via environment variables and loaded asynchronously.
 * **📊 Robust Admin Control Panel**:
   * **✨ Interactive Web App Dashboard**: A full React-based GUI panel right inside Telegram! Features butter-smooth sliding animations, glassmorphism toast notifications, and dark-mode styling.
