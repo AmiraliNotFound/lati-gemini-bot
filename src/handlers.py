@@ -320,7 +320,14 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
         stack = traceback.format_exc()
         logger.error(f"yt-dlp error: {e}")
         await database.log_error(config.DB_FILE, "YT_DLP_ERROR", error_msg, stack)
-        await status_msg.edit_text("❌ نتونستم دانلودش کنم، یوتوب/اینستا گیر داده.")
+        
+        # Ultimate Fallback for Instagram: provide a proxy link that Telegram can natively embed
+        if "instagram.com" in url:
+            proxy_url = url.replace("instagram.com", "ddinstagram.com").replace("www.", "")
+            await status_msg.edit_text(f"🎥 اینستاگرام سرورم رو بلاک کرده، ولی بیا این لینک رو باز کن تلگرام خودش ویدیوش رو میاره برات:\n{proxy_url}")
+        else:
+            await status_msg.edit_text("❌ نتونستم دانلودش کنم، یوتوب/اینستا گیر داده.")
+            
         if os.path.exists(filename):
             os.remove(filename)
 
