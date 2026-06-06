@@ -16,6 +16,8 @@ def check_auth(request):
 async def get_stats(request):
     check_auth(request)
     stats = await database.get_db_stats(config.DB_FILE)
+    errors = await database.get_recent_errors(config.DB_FILE, limit=10)
+    stats["recent_errors"] = [{"timestamp": e[0], "type": e[1], "message": e[2], "stack_trace": e[3]} for e in errors]
     return web.json_response(stats)
 
 async def get_config(request):

@@ -4,6 +4,7 @@ import random
 import re
 import os
 import uuid
+import traceback
 
 try:
     import yt_dlp
@@ -271,12 +272,19 @@ async def tldr_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         await update.message.reply_text(response.text if response.text else "نتونستم بخونمش، یه جای کار میلنگه.")
     except Exception as e:
-        logger.error(f"TLDR generation failed: {e}")
+        error_msg = str(e)
+        stack = traceback.format_exc()
+        logger.error(f"GenAI error: {e}")
+        await database.log_error(config.DB_FILE, "GENAI_ERROR", error_msg, stack)
         await update.message.reply_text("مغزم ارور داد از بس حرف مفت زدین... دفعه بعد 🚶‍♂️")
 
 def sync_download_video(url: str, output_path: str):
     if not yt_dlp:
         raise ImportError("yt_dlp is not installed")
+        
+    # Strip tracking parameters from Instagram/X URLs to bypass basic blocks
+    if "instagram.com" in url or "x.com" in url or "twitter.com" in url:
+        url = url.split("?")[0]
         
     ydl_opts = {
         'outtmpl': output_path,
@@ -284,6 +292,9 @@ def sync_download_video(url: str, output_path: str):
         'noplaylist': True,
         'quiet': True,
         'max_filesize': 50000000,
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        }
     }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         ydl.download([url])
@@ -305,7 +316,10 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
     except ImportError:
         await status_msg.edit_text("❌ قابلیت دانلود فعال نیست! ادمین باید ربات رو دوباره Build کنه.")
     except Exception as e:
+        error_msg = str(e)
+        stack = traceback.format_exc()
         logger.error(f"yt-dlp error: {e}")
+        await database.log_error(config.DB_FILE, "YT_DLP_ERROR", error_msg, stack)
         await status_msg.edit_text("❌ نتونستم دانلودش کنم، یوتوب/اینستا گیر داده.")
         if os.path.exists(filename):
             os.remove(filename)
@@ -461,6 +475,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error("GenAI pipeline processing exceeded standard time boundaries.")
         await update.message.reply_text("سرعت اینترنت خودت داغونه یا گوگل ریده؟ طول کشید، دوباره بگو 🥱")
     except Exception as e:
+        error_msg = str(e)
+        stack = traceback.format_exc()
         logger.error(f"Execution handling failure: {e}")
+        await database.log_error(config.DB_FILE, "GENAI_ERROR", error_msg, stack)
         await update.message.reply_text(f"سیستم ریپ زد {sender_name}، یه بار دیگه بگو 🚶‍♂️")
 

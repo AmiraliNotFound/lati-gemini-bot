@@ -46,6 +46,15 @@ async def init_db(db_path: str):
                 chat_name TEXT
             )
         ''')
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS error_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                error_type TEXT,
+                error_message TEXT,
+                stack_trace TEXT
+            )
+        ''')
         await db.commit()
         
         # Populate config table if empty
@@ -191,10 +200,29 @@ async def is_blocked(db_path: str, target_id: int) -> bool:
             return await cursor.fetchone() is not None
 
 async def save_chat_metadata(db_path: str, chat_id: int, chat_name: str):
-    """Saves the latest chat title."""
     async with aiosqlite.connect(db_path) as db:
-        await db.execute("INSERT OR REPLACE INTO chat_metadata (chat_id, chat_name) VALUES (?, ?)", (chat_id, chat_name))
+        await db.execute(
+            "INSERT OR REPLACE INTO chat_metadata (chat_id, chat_name) VALUES (?, ?)",
+            (chat_id, chat_name)
+        )
         await db.commit()
+
+async def log_error(db_path: str, error_type: str, error_message: str, stack_trace: str = ""):
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute(
+            "INSERT INTO error_logs (error_type, error_message, stack_trace) VALUES (?, ?, ?)",
+            (error_type, error_message, stack_trace)
+        )
+        # Keep only the last 50 errors
+        await db.execute(
+            "DELETE FROM error_logs WHERE id NOT IN (SELECT id FROM error_logs ORDER BY id DESC LIMIT 50)"
+        )
+        await db.commit()
+
+async def get_recent_errors(db_path: str, limit: int = 10):
+    async with aiosqlite.connect(db_path) as db:
+        async with db.execute("SELECT timestamp, error_type, error_message, stack_trace FROM error_logs ORDER BY id DESC LIMIT ?", (limit,)) as cursor:
+            return await cursor.fetchall()
 
 async def get_recent_chats(db_path: str, limit: int = 50) -> list:
     """Gets recently active chats for the admin panel."""

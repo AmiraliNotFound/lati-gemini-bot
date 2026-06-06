@@ -240,6 +240,21 @@ function App() {
                   <div className="stat-label">Database Size</div>
                 </div>
               </div>
+              
+              {stats.recent_errors && stats.recent_errors.length > 0 && (
+                <div style={{marginTop: 20}}>
+                  <h3 style={{marginBottom: 10, color: '#ef4444'}}>Recent Errors</h3>
+                  <div style={{display: 'flex', flexDirection: 'column', gap: 10}}>
+                    {stats.recent_errors.map((e, i) => (
+                      <div key={i} style={{background: 'rgba(239, 68, 68, 0.1)', borderLeft: '4px solid #ef4444', padding: 10, borderRadius: 4}}>
+                        <div style={{fontSize: 12, color: '#9ca3af'}}>{new Date(e.timestamp + 'Z').toLocaleString()}</div>
+                        <div style={{fontWeight: 'bold', color: '#ef4444'}}>{e.type}</div>
+                        <div style={{fontSize: 13, fontFamily: 'monospace', wordBreak: 'break-all', marginTop: 4}}>{e.message}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
