@@ -282,12 +282,15 @@ async def cobalt_fallback_download(url: str, output_path: str) -> bool:
     import aiohttp
     headers = {
         "Accept": "application/json",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "Origin": "https://cobalt.tools",
+        "Referer": "https://cobalt.tools/",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
     payload = {"url": url}
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.post("https://co.wuk.sh/api/json", json=payload, headers=headers, timeout=15) as resp:
+            async with session.post("https://api.cobalt.tools/api/json", json=payload, headers=headers, timeout=15) as resp:
                 if resp.status == 200:
                     data = await resp.json()
                     if data.get("status") in ["stream", "redirect"] and data.get("url"):
@@ -355,7 +358,7 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
 
         # Ultimate Fallback for Instagram: provide a proxy link that Telegram can natively embed
         if "instagram.com" in url:
-            proxy_url = url.replace("instagram.com", "instagramez.com").replace("www.", "")
+            proxy_url = url.replace("instagram.com", "rxinstagram.com").replace("www.", "")
             await status_msg.edit_text(f"🎥 اینستاگرام سرورم رو بلاک کرده، ولی بیا این لینک رو باز کن تلگرام خودش ویدیوش رو میاره برات:\n{proxy_url}")
         else:
             await status_msg.edit_text("❌ نتونستم دانلودش کنم، یوتوب/اینستا گیر داده.")
