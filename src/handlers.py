@@ -322,6 +322,16 @@ def sync_download_video(url: str, output_path: str):
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         }
     }
+    
+    # Use cookies if provided by admin to bypass Instagram login walls
+    cookies_data_path = os.path.join(os.path.dirname(config.DB_FILE), "cookies.txt")
+    cookies_root_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "cookies.txt")
+    
+    if os.path.exists(cookies_data_path):
+        ydl_opts['cookiefile'] = cookies_data_path
+    elif os.path.exists(cookies_root_path):
+        ydl_opts['cookiefile'] = cookies_root_path
+        
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         ydl.download([url])
 
@@ -356,10 +366,9 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
             await status_msg.delete()
             return
 
-        # Ultimate Fallback for Instagram: provide a proxy link that Telegram can natively embed
+        # If everything fails, Instagram is completely blocking the IP without cookies.
         if "instagram.com" in url:
-            proxy_url = url.replace("instagram.com", "rxinstagram.com").replace("www.", "")
-            await status_msg.edit_text(f"🎥 اینستاگرام سرورم رو بلاک کرده، ولی بیا این لینک رو باز کن تلگرام خودش ویدیوش رو میاره برات:\n{proxy_url}")
+            await status_msg.edit_text("❌ اینستاگرام گیر داده! ادمین باید کوکی ست کنه.")
         else:
             await status_msg.edit_text("❌ نتونستم دانلودش کنم، یوتوب/اینستا گیر داده.")
             
