@@ -278,6 +278,29 @@ async def tldr_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await database.log_error(config.DB_FILE, "GENAI_ERROR", error_msg, stack)
         await update.message.reply_text("مغزم ارور داد از بس حرف مفت زدین... دفعه بعد 🚶‍♂️")
 
+async def cobalt_fallback_download(url: str, output_path: str) -> bool:
+    import aiohttp
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json"
+    }
+    payload = {"url": url}
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post("https://co.wuk.sh/api/json", json=payload, headers=headers, timeout=15) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    if data.get("status") in ["stream", "redirect"] and data.get("url"):
+                        video_url = data.get("url")
+                        async with session.get(video_url, timeout=60) as v_resp:
+                            if v_resp.status == 200:
+                                with open(output_path, "wb") as f:
+                                    f.write(await v_resp.read())
+                                return True
+    except Exception as e:
+        logger.error(f"Cobalt fallback failed: {e}")
+    return False
+
 def sync_download_video(url: str, output_path: str):
     if not yt_dlp:
         raise ImportError("yt_dlp is not installed")
@@ -321,9 +344,18 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
         logger.error(f"yt-dlp error: {e}")
         await database.log_error(config.DB_FILE, "YT_DLP_ERROR", error_msg, stack)
         
+        # Try Cobalt API fallback
+        success = await cobalt_fallback_download(url, filename)
+        if success and os.path.exists(filename):
+            with open(filename, 'rb') as video:
+                await context.bot.send_video(chat_id=chat_id, video=video, reply_to_message_id=update.message.message_id)
+            os.remove(filename)
+            await status_msg.delete()
+            return
+
         # Ultimate Fallback for Instagram: provide a proxy link that Telegram can natively embed
         if "instagram.com" in url:
-            proxy_url = url.replace("instagram.com", "ddinstagram.com").replace("www.", "")
+            proxy_url = url.replace("instagram.com", "instagramez.com").replace("www.", "")
             await status_msg.edit_text(f"🎥 اینستاگرام سرورم رو بلاک کرده، ولی بیا این لینک رو باز کن تلگرام خودش ویدیوش رو میاره برات:\n{proxy_url}")
         else:
             await status_msg.edit_text("❌ نتونستم دانلودش کنم، یوتوب/اینستا گیر داده.")
