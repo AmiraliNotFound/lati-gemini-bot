@@ -15,10 +15,11 @@ The bot is calibrated out-of-the-box with a witty, teasing, and sarcastic Persia
   * **Images**: Send photos to the bot, and it will analyze and roast/respond to them in character.
   * **Voice Messages**: Send voice notes; the bot downloads and processes the audio natively through Gemini.
 * **📥 Smart Media Downloader**: Automatically detects Instagram, YouTube, and Twitter links in chat. Downloads the actual video via `yt-dlp` and re-uploads it natively so nobody has to click the link!
+  * **Instagram Bypass**: Due to strict data-center IP blocking by Meta, Instagram downloads may require a session cookie. Simply export a fake account's cookies using the "Get cookies.txt LOCALLY" browser extension and upload it to the `data/` folder as `cookies.txt`. The bot will automatically detect and use it to securely bypass the login wall!
 * **🛡️ Secure Configuration**: Zero hardcoded secrets. Fully configured via environment variables and loaded asynchronously.
 * **📊 Robust Admin Control Panel**:
   * **✨ Interactive Web App Dashboard**: A full React-based GUI panel right inside Telegram! Features butter-smooth sliding animations, glassmorphism toast notifications, and dark-mode styling.
-    * **Stats Tab**: Live auto-updating system metrics (total chats, processed messages, DB size).
+    * **Stats Tab**: Live auto-updating system metrics (total chats, processed messages, DB size) and a detailed log of the 10 most recent system and scraper errors.
     * **Mod Tab**: View all active chats with their real names and block/leave them with one click.
     * **VIPs Tab**: Visual interface to add, edit, and remove Special Users and their custom personas.
     * **Cast Tab**: Type a broadcast message and fire it to every single user/group instantly.
