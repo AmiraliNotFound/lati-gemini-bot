@@ -205,8 +205,8 @@ Administrators defined in the `.env` configuration can execute parameters inside
 | `/admin set_timeout <float>` | Timeout threshold for AI responses in seconds |
 | `/admin set_chance <float>` | Random unprovoked roast probability (0.0 to 1.0) |
 | `/admin set_instruction <text>` | Overwrites the system persona/prompt |
-| `/admin add_special <username> <instruction>` | Creates or updates a special user with a custom system prompt override |
-| `/admin remove_special <username>` | Removes a special user's custom override |
+| `/admin add_special <username/name> <instruction>` | Creates or updates a special user/VIP with a custom system prompt override. For account names containing spaces, wrap them in quotes (e.g. `add_special "John Doe" instruction`). |
+| `/admin remove_special <username/name>` | Removes a special user's custom override (supports quotes for names with spaces). |
 | `/admin list_special` | Displays all registered special users |
 | `/admin stats` | Outputs total messages processed, unique chat IDs, and SQLite database file size |
 | `/admin broadcast <text>` | Instantly broadcasts a message to every active chat saved in the database |
