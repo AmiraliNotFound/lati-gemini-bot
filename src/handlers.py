@@ -97,8 +97,8 @@ async def admin_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "▫️ `/admin set_chance <float>` (Random roast probability: 0.0 to 1.0)\n"
             "▫️ `/admin set_instruction <prompt-text>`\n\n"
             "✨ *Specials Management:*\n"
-            "▫️ `/admin add_special <username> <custom-instruction>`\n"
-            "▫️ `/admin remove_special <username>`\n"
+            "▫️ `/admin add_special <username/name> <custom-instruction>`\n"
+            "▫️ `/admin remove_special <username/name>`\n"
             "▫️ `/admin list_special`\n\n"
             "📊 *Utility Commands:*\n"
             "▫️ `/admin stats` - Get database and user statistics\n"
@@ -162,29 +162,56 @@ async def admin_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         lines = ["✨ *فهرست کاربران ویژه و دستورالعمل‌های اختصاصی:*\n"]
         for idx, (uname, instr) in enumerate(specials, 1):
-            lines.append(f"{idx}. `@{uname}`: `{instr}`")
+            display_name = uname if (" " in uname or uname.startswith("@")) else f"@{uname}"
+            lines.append(f"{idx}. `{display_name}`: `{instr}`")
         await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
         return
 
     # Admin utility: Remove Special
     if action == "remove_special":
-        if len(args) < 2:
-            await update.message.reply_text("❌ خطا: یوزرنیم کاربر ویژه را وارد نکردی.")
+        if not value:
+            await update.message.reply_text("❌ خطا: یوزرنیم یا نام کاربر ویژه را وارد نکردی.")
             return
-        special_username = args[1].lstrip("@")
+        special_username = value.strip()
+        if (special_username.startswith('"') and special_username.endswith('"')) or (special_username.startswith("'") and special_username.endswith("'")):
+            special_username = special_username[1:-1].strip()
+        special_username = special_username.lstrip("@")
         await database.remove_special_user(config.DB_FILE, special_username)
-        await update.message.reply_text(f"✅ کاربر ویژه `@{special_username}` حذف شد.", parse_mode="Markdown")
+        await update.message.reply_text(f"✅ کاربر ویژه `{special_username}` حذف شد.", parse_mode="Markdown")
         return
 
     # Admin utility: Add Special
     if action == "add_special":
-        if len(args) < 3:
-            await update.message.reply_text("❌ خطا: باید یوزرنیم و دستورالعمل اختصاصی را وارد کنی.\nمثال: `/admin add_special username بسیار مهربان و باادب باش`")
+        if not value:
+            await update.message.reply_text("❌ خطا: باید نام کاربری/نام و دستورالعمل اختصاصی را وارد کنی.\nمثال: `/admin add_special username بسیار مهربان و باادب باش`\nیا برای نام‌های با فاصله: `/admin add_special \"John Doe\" بسیار مهربان باش`")
             return
-        special_username = args[1].lstrip("@")
-        special_instruction = " ".join(args[2:])
+        
+        # Check if username is wrapped in quotes
+        special_username = None
+        special_instruction = None
+        
+        if value.startswith('"'):
+            end_idx = value.find('"', 1)
+            if end_idx != -1:
+                special_username = value[1:end_idx].strip()
+                special_instruction = value[end_idx+1:].strip()
+        elif value.startswith("'"):
+            end_idx = value.find("'", 1)
+            if end_idx != -1:
+                special_username = value[1:end_idx].strip()
+                special_instruction = value[end_idx+1:].strip()
+                
+        if not special_username or not special_instruction:
+            if len(args) < 3:
+                await update.message.reply_text("❌ خطا: باید نام کاربری/نام و دستورالعمل اختصاصی را وارد کنی.\nمثال: `/admin add_special username بسیار مهربان و باادب باش`")
+                return
+            special_username = args[1].lstrip("@")
+            special_instruction = " ".join(args[2:])
+        else:
+            special_username = special_username.lstrip("@")
+            
         await database.add_special_user(config.DB_FILE, special_username, special_instruction)
-        await update.message.reply_text(f"✅ کاربر ویژه `@{special_username}` با دستورالعمل اختصاصی اضافه/ویرایش شد.", parse_mode="Markdown")
+        await update.message.reply_text(f"✅ کاربر ویژه `{special_username}` با دستورالعمل اختصاصی اضافه/ویرایش شد.", parse_mode="Markdown")
         return
 
     if not value:
@@ -451,6 +478,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     special_instruction = None
     if sender_username:
         special_instruction = await database.get_special_user_instruction(config.DB_FILE, sender_username)
+        
+    if not special_instruction and update.message.from_user:
+        # Fallback to account full name
+        full_name = update.message.from_user.full_name
+        if full_name:
+            special_instruction = await database.get_special_user_instruction(config.DB_FILE, full_name)
+        # Fallback to account first name
+        if not special_instruction:
+            first_name = update.message.from_user.first_name
+            if first_name and first_name != full_name:
+                special_instruction = await database.get_special_user_instruction(config.DB_FILE, first_name)
         
     system_instruction = special_instruction if special_instruction else config.runtime_config["SYSTEM_INSTRUCTION"]
 

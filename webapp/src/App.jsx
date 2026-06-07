@@ -297,7 +297,7 @@ function App() {
             <div className="card">
               <h2><Users size={18}/> Special Users (Overrides)</h2>
               <div className="input-group">
-                <input type="text" className="input" placeholder="Username (e.g. AmiraliNotFound)" value={newSpecial.username} onChange={e => setNewSpecial({...newSpecial, username: e.target.value})} />
+                <input type="text" className="input" placeholder="Username or Account Name (e.g. AmiraliNotFound or John Doe)" value={newSpecial.username} onChange={e => setNewSpecial({...newSpecial, username: e.target.value})} />
               </div>
               <div className="input-group">
                 <textarea className="input" rows="3" placeholder="Custom persona instructions..." value={newSpecial.instruction} onChange={e => setNewSpecial({...newSpecial, instruction: e.target.value})}></textarea>
@@ -309,7 +309,7 @@ function App() {
               {specials.map(s => (
                 <div className="list-item" key={s.username} style={{alignItems: 'flex-start', flexDirection: 'column', gap: 8}}>
                   <div style={{display:'flex', justifyContent:'space-between', width:'100%'}}>
-                    <div className="item-name">@{s.username}</div>
+                    <div className="item-name">{s.username.startsWith('@') || s.username.includes(' ') ? s.username : `@${s.username}`}</div>
                     <button className="btn btn-danger" style={{padding: '4px 8px'}} onClick={() => removeSpecial(s.username)}>Remove</button>
                   </div>
                   <div className="item-sub" style={{background: 'rgba(255,255,255,0.05)', padding: 8, borderRadius: 6}}>{s.instruction}</div>
