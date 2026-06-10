@@ -32,9 +32,14 @@ _user_cooldowns = {}
 COOLDOWN_WINDOW = 60 # seconds
 MAX_REQUESTS_IN_WINDOW = 4
 
-def convert_audio_to_ogg(input_path: str, ogg_path: str):
+def convert_audio_to_ogg(input_path: str, ogg_path: str, is_pcm: bool = False, sample_rate: int = 24000, channels: int = 1):
+    cmd = ["ffmpeg", "-y"]
+    if is_pcm:
+        cmd.extend(["-f", "s16le", "-ar", str(sample_rate), "-ac", str(channels)])
+    cmd.extend(["-i", input_path, "-acodec", "libopus", ogg_path])
+    
     subprocess.run(
-        ["ffmpeg", "-y", "-i", input_path, "-acodec", "libopus", ogg_path],
+        cmd,
         check=True,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL
@@ -76,7 +81,7 @@ async def generate_gemini_voice_reply(text: str, model_id: str = None, voice_nam
     Returns the file path of the OGG audio file, or None if it fails.
     """
     if not model_id:
-        model_id = config.runtime_config.get("TTS_GEMINI_MODEL", "gemini-2.5-flash")
+        model_id = config.runtime_config.get("TTS_GEMINI_MODEL", "gemini-2.5-flash-preview-tts")
     if not voice_name:
         voice_name = config.runtime_config.get("TTS_GEMINI_VOICE", "Kore")
         
@@ -120,8 +125,21 @@ async def generate_gemini_voice_reply(text: str, model_id: str = None, voice_nam
         audio_bytes = audio_part.inline_data.data
         mime_type = audio_part.inline_data.mime_type or "audio/wav"
         
+        is_pcm = False
+        sample_rate = 24000
+        channels = 1
+        
+        if "pcm" in mime_type.lower() or "l16" in mime_type.lower():
+            is_pcm = True
+            # Try to extract sample rate from mime type e.g. "rate=24000"
+            match = re.search(r"rate=(\d+)", mime_type.lower())
+            if match:
+                sample_rate = int(match.group(1))
+                
         ext = "wav"
-        if "ogg" in mime_type:
+        if is_pcm:
+            ext = "raw"
+        elif "ogg" in mime_type:
             ext = "ogg"
         elif "mp3" in mime_type:
             ext = "mp3"
@@ -133,7 +151,14 @@ async def generate_gemini_voice_reply(text: str, model_id: str = None, voice_nam
             f.write(audio_bytes)
             
         try:
-            await asyncio.to_thread(convert_audio_to_ogg, temp_filename, ogg_filename)
+            await asyncio.to_thread(
+                convert_audio_to_ogg, 
+                temp_filename, 
+                ogg_filename, 
+                is_pcm=is_pcm, 
+                sample_rate=sample_rate, 
+                channels=channels
+            )
             return ogg_filename
         except Exception as conv_err:
             logger.error(f"Failed to convert Gemini TTS from {ext} to OGG: {conv_err}")
