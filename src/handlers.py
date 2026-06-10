@@ -286,10 +286,25 @@ async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "🔹 /start : بیدار کردن من\n"
             "🔹 /help : همین پیامی که داری می‌خونی\n"
             "🔹 /tldr : خلاصه‌سازی پیام‌های گروه (فقط تو گروه‌ها کار میکنه)\n"
-            "🔹 /ask <سوال> : پرسیدن سوال مستقیم بدون قاتی کردن با تاریخچه چت قبلی\n\n"
+            "🔹 /ask <سوال> : پرسیدن سوال مستقیم بدون قاتی کردن با تاریخچه چت قبلی\n"
+            "🔹 /transcribe : تبدیل ویس ریپلای شده به متن (کافیست روی ویس ریپلای کنید)\n"
+            "🔹 /support <پیام> : ارتباط با پشتیبانی و ارسال پیام به ادمین (فقط در چت خصوصی)\n\n"
             "🎥 **دانلودر هوشمند:**\n"
             "اگه لینک **اینستاگرام** یا **یوتوب** بفرستی، ویدیو رو مستقیم برات همینجا دانلود می‌کنم و می‌فرستم!"
         )
+        
+        is_admin = False
+        if update.message.from_user and update.message.from_user.username:
+            username = update.message.from_user.username.lower()
+            is_admin = username in config.ALLOWED_ADMINS
+            
+        if is_admin:
+            help_text += (
+                "\n\n👑 **دستورات مدیریت:**\n"
+                "🔹 /reply <شناسه کاربر> <پیام> : پاسخ مستقیم به پیام کاربر پشتیبانی\n"
+                "🔹 /admin : باز کردن پنل مدیریت وب"
+            )
+            
         await update.message.reply_text(help_text, parse_mode="Markdown")
 
 async def ask_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
