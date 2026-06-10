@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import WebApp from '@twa-dev/sdk';
-import { Activity, ShieldAlert, Settings, RefreshCcw, Users, Megaphone, Upload, RefreshCw, MessageSquare, Clock, Search, Send, LogOut, ShieldOff, Check, X } from 'lucide-react';
+import { Activity, ShieldAlert, Settings, RefreshCcw, Users, Megaphone, Upload, RefreshCw, MessageSquare, Clock, Search, Send, LogOut, ShieldOff, Check, X, Gauge } from 'lucide-react';
 import axios from 'axios';
 import './index.css';
 
@@ -42,6 +42,28 @@ function App() {
   const [customRoastChanceValue, setCustomRoastChanceValue] = useState(0.02);
   const [customCooldownValue, setCustomCooldownValue] = useState(60);
   const [savingSettings, setSavingSettings] = useState(false);
+
+  // Model limits states
+  const [modelLimits, setModelLimits] = useState(null);
+  const [loadingLimits, setLoadingLimits] = useState(false);
+
+  const fetchModelLimits = async () => {
+    setLoadingLimits(true);
+    try {
+      const res = await axios.get(`${API_BASE}/model_limits?t=${Date.now()}`);
+      setModelLimits(res.data);
+    } catch (e) {
+      showToast("Failed to fetch model limits");
+    } finally {
+      setLoadingLimits(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'limits') {
+      fetchModelLimits();
+    }
+  }, [activeTab]);
 
   useEffect(() => {
     try {
@@ -309,7 +331,7 @@ function App() {
     setUpdatingScraper(false);
   };
 
-  const tabsList = ['dashboard', 'moderation', 'broadcast', 'settings'];
+  const tabsList = ['dashboard', 'moderation', 'broadcast', 'settings', 'limits'];
   const activeIndex = tabsList.indexOf(activeTab);
 
   return (
@@ -350,8 +372,8 @@ function App() {
         <div style={{
           position: 'absolute',
           top: 4, bottom: 4,
-          left: `calc(4px + (100% - 8px) / 4 * ${activeIndex})`,
-          width: `calc((100% - 8px) / 4)`,
+          left: `calc(4px + (100% - 8px) / 5 * ${activeIndex})`,
+          width: `calc((100% - 8px) / 5)`,
           backgroundColor: 'var(--tg-theme-bg-color)',
           borderRadius: '8px',
           boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
@@ -370,6 +392,9 @@ function App() {
         </div>
         <div className={`tab ${activeTab === 'settings' ? 'active' : ''}`} onClick={() => { setActiveTab('settings'); setSelectedChat(null); }}>
           <Settings size={16} /> <span>Conf</span>
+        </div>
+        <div className={`tab ${activeTab === 'limits' ? 'active' : ''}`} onClick={() => { setActiveTab('limits'); setSelectedChat(null); }}>
+          <Gauge size={16} /> <span>Limits</span>
         </div>
       </div>
 
@@ -706,6 +731,148 @@ function App() {
                 </div>
               </div>
             </>
+          )}
+
+          {activeTab === 'limits' && (
+            <div className="card">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+                <h2 style={{ margin: 0 }}><Gauge size={18}/> Model Limits & Usage</h2>
+                <button className="btn" onClick={fetchModelLimits} disabled={loadingLimits} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <RefreshCw size={14} className={loadingLimits ? 'spinning' : ''} />
+                  <span>Refresh</span>
+                </button>
+              </div>
+
+              {loadingLimits && !modelLimits ? (
+                <div style={{ textAlign: 'center', padding: '40px 0' }}>
+                  <RefreshCcw size={32} className="spinning" style={{ color: 'var(--tg-theme-button-color)' }} />
+                  <p style={{ marginTop: 10, color: 'var(--tg-theme-hint-color)' }}>Fetching model limits...</p>
+                </div>
+              ) : modelLimits ? (
+                <div>
+                  {/* Live Request usage estimates (Free tier comparison) */}
+                  <div style={{ background: 'rgba(255,255,255,0.02)', borderRadius: 12, padding: 16, border: '1px solid var(--border-color)', marginBottom: 20 }}>
+                    <h3 style={{ fontSize: 13, fontWeight: '700', marginBottom: 12, color: 'var(--tg-theme-text-color)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      Live Request Usage (Free Tier Quota)
+                    </h3>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                      <div style={{ background: 'rgba(0,0,0,0.2)', padding: 12, borderRadius: 8, border: '1px solid var(--border-color)' }}>
+                        <div style={{ fontSize: 24, fontWeight: '700', color: modelLimits.usage.last_minute.requests >= 15 ? '#ef4444' : '#10b981' }}>
+                          {modelLimits.usage.last_minute.requests} <span style={{ fontSize: 12, color: 'var(--tg-theme-hint-color)', fontWeight: 'normal' }}>/ 15</span>
+                        </div>
+                        <div style={{ fontSize: 11, color: 'var(--tg-theme-hint-color)', marginTop: 4 }}>RPM (Requests in last 1m)</div>
+                        {modelLimits.usage.last_minute.errors > 0 && (
+                          <div style={{ fontSize: 10, color: '#ef4444', marginTop: 4, fontWeight: '600' }}>⚠️ {modelLimits.usage.last_minute.errors} errors</div>
+                        )}
+                      </div>
+                      <div style={{ background: 'rgba(0,0,0,0.2)', padding: 12, borderRadius: 8, border: '1px solid var(--border-color)' }}>
+                        <div style={{ fontSize: 24, fontWeight: '700', color: modelLimits.usage.last_24_hours.requests >= 1500 ? '#ef4444' : '#3b82f6' }}>
+                          {modelLimits.usage.last_24_hours.requests} <span style={{ fontSize: 12, color: 'var(--tg-theme-hint-color)', fontWeight: 'normal' }}>/ 1,500</span>
+                        </div>
+                        <div style={{ fontSize: 11, color: 'var(--tg-theme-hint-color)', marginTop: 4 }}>RPD (Requests in last 24h)</div>
+                        {modelLimits.usage.last_24_hours.errors > 0 && (
+                          <div style={{ fontSize: 10, color: '#ef4444', marginTop: 4, fontWeight: '600' }}>⚠️ {modelLimits.usage.last_24_hours.errors} errors</div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Active Models list */}
+                  <h3 style={{ fontSize: 13, fontWeight: '700', marginBottom: 12, color: 'var(--tg-theme-hint-color)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    Active Models in Use
+                  </h3>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    {modelLimits.models.map((model, idx) => {
+                      const rpmPercent = Math.min(100, (modelLimits.usage.last_minute.requests / model.limits.rpm) * 100);
+                      const rpdPercent = Math.min(100, (modelLimits.usage.last_24_hours.requests / model.limits.rpd) * 100);
+
+                      return (
+                        <div key={idx} style={{ border: '1px solid var(--border-color)', borderRadius: 12, padding: 16, background: 'rgba(255,255,255,0.01)' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                            <span style={{ fontWeight: 700, fontSize: 15, color: '#f3f4f6' }}>{model.model_id}</span>
+                            <span className={`badge ${model.status === 'active' ? 'badge-dm' : 'badge-blocked'}`}>
+                              {model.status === 'active' ? 'Active' : 'Error'}
+                            </span>
+                          </div>
+                          
+                          {model.display_name && model.display_name !== model.model_id && (
+                            <div style={{ fontSize: 12, color: 'var(--tg-theme-hint-color)', marginBottom: 8 }}>{model.display_name}</div>
+                          )}
+
+                          {model.status === 'error' ? (
+                            <div style={{ background: 'rgba(239, 68, 68, 0.06)', color: '#ef4444', padding: 10, borderRadius: 8, fontSize: 12, fontFamily: 'monospace', wordBreak: 'break-all', border: '1px solid rgba(239,68,68,0.15)' }}>
+                              {model.error}
+                            </div>
+                          ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 8 }}>
+                              {model.description && (
+                                <p style={{ fontSize: 12, color: 'var(--tg-theme-hint-color)', lineHeight: 1.4 }}>{model.description}</p>
+                              )}
+
+                              {/* Static Token Limits */}
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, background: 'rgba(0,0,0,0.15)', padding: 10, borderRadius: 8, border: '1px solid var(--border-color)', marginTop: 4 }}>
+                                <div>
+                                  <div style={{ fontSize: 10, color: 'var(--tg-theme-hint-color)' }}>Max Input Tokens</div>
+                                  <div style={{ fontSize: 12, fontWeight: '600', marginTop: 2, color: '#f3f4f6' }}>
+                                    {model.input_token_limit ? model.input_token_limit.toLocaleString() : 'N/A'}
+                                  </div>
+                                </div>
+                                <div>
+                                  <div style={{ fontSize: 10, color: 'var(--tg-theme-hint-color)' }}>Max Output Tokens</div>
+                                  <div style={{ fontSize: 12, fontWeight: '600', marginTop: 2, color: '#f3f4f6' }}>
+                                    {model.output_token_limit ? model.output_token_limit.toLocaleString() : 'N/A'}
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* RPM meter */}
+                              <div style={{ marginTop: 4 }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 4 }}>
+                                  <span style={{ color: 'var(--tg-theme-hint-color)' }}>RPM Limit Usage:</span>
+                                  <span style={{ fontWeight: '600' }}>
+                                    {modelLimits.usage.last_minute.requests} / {model.limits.rpm} RPM
+                                  </span>
+                                </div>
+                                <div className="progress-bar-bg">
+                                  <div 
+                                    className="progress-bar-fill" 
+                                    style={{ 
+                                      width: `${rpmPercent}%`,
+                                      background: rpmPercent > 80 ? '#ef4444' : rpmPercent > 50 ? '#f59e0b' : 'linear-gradient(90deg, #10b981, #3b82f6)'
+                                    }} 
+                                  />
+                                </div>
+                              </div>
+
+                              {/* RPD meter */}
+                              <div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 4 }}>
+                                  <span style={{ color: 'var(--tg-theme-hint-color)' }}>RPD Limit Usage:</span>
+                                  <span style={{ fontWeight: '600' }}>
+                                    {modelLimits.usage.last_24_hours.requests} / {model.limits.rpd} RPD
+                                  </span>
+                                </div>
+                                <div className="progress-bar-bg">
+                                  <div 
+                                    className="progress-bar-fill" 
+                                    style={{ 
+                                      width: `${rpdPercent}%`,
+                                      background: rpdPercent > 80 ? '#ef4444' : rpdPercent > 50 ? '#f59e0b' : 'linear-gradient(90deg, #3b82f6, #8b5cf6)'
+                                    }} 
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : (
+                <p style={{ color: 'var(--tg-theme-hint-color)', textAlign: 'center' }}>No model limits data available.</p>
+              )}
+            </div>
           )}
         </>
       )}

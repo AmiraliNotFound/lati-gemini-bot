@@ -412,4 +412,42 @@ async def get_top_chat_users(db_path: str, chat_id: int, limit: int = 5) -> list
             return [{"name": r[0], "count": r[1]} for r in rows]
 
 
+async def get_model_usage_stats(db_path: str) -> dict:
+    """Calculates model request rates (RPM and RPD estimates) from messages and error logs."""
+    stats = {
+        "last_minute": {"requests": 0, "errors": 0},
+        "last_24_hours": {"requests": 0, "errors": 0}
+    }
+    if not os.path.exists(db_path):
+        return stats
+        
+    async with aiosqlite.connect(db_path) as db:
+        # 1. Last minute requests (successful generations)
+        async with db.execute(
+            "SELECT COUNT(*) FROM messages WHERE role = 'model' AND timestamp >= datetime('now', '-1 minute')"
+        ) as cursor:
+            stats["last_minute"]["requests"] = (await cursor.fetchone())[0]
+            
+        # 2. Last minute errors
+        async with db.execute(
+            "SELECT COUNT(*) FROM error_logs WHERE timestamp >= datetime('now', '-1 minute')"
+        ) as cursor:
+            stats["last_minute"]["errors"] = (await cursor.fetchone())[0]
+            
+        # 3. Last 24 hours requests
+        async with db.execute(
+            "SELECT COUNT(*) FROM messages WHERE role = 'model' AND timestamp >= datetime('now', '-24 hours')"
+        ) as cursor:
+            stats["last_24_hours"]["requests"] = (await cursor.fetchone())[0]
+            
+        # 4. Last 24 hours errors
+        async with db.execute(
+            "SELECT COUNT(*) FROM error_logs WHERE timestamp >= datetime('now', '-24 hours')"
+        ) as cursor:
+            stats["last_24_hours"]["errors"] = (await cursor.fetchone())[0]
+            
+    return stats
+
+
+
 
