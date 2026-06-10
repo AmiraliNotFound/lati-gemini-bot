@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import WebApp from '@twa-dev/sdk';
 import { Activity, ShieldAlert, Settings, RefreshCcw, Users, Megaphone, Upload, RefreshCw, MessageSquare, Clock, Search, Send, LogOut, ShieldOff, Check, X, Gauge } from 'lucide-react';
 import axios from 'axios';
@@ -17,6 +17,8 @@ function App() {
   const [specials, setSpecials] = useState([]);
   const [blocked, setBlocked] = useState([]);
   const [config, setConfig] = useState(null);
+  const configDirtyRef = useRef(false); // True when user has unsaved config edits
+  const [configDirty, setConfigDirty] = useState(false); // Mirror for UI reactivity
   const [loading, setLoading] = useState(true);
 
   // Forms state
@@ -195,13 +197,37 @@ function App() {
       ]);
       setStats(st.data);
       setChats(ch.data);
-      setConfig(conf.data);
+      // Only update config from server if user hasn't made unsaved edits.
+      // This prevents the 5s auto-refresh from wiping what they're typing.
+      if (!configDirtyRef.current) {
+        setConfig(conf.data);
+      }
       setSpecials(sp.data);
       setBlocked(bl.data);
     } catch (error) {
       console.error("Error fetching data:", error);
     }
     setLoading(false);
+  };
+
+  // Helper: update a config field and mark the form as dirty (unsaved)
+  const setConfigField = (patch) => {
+    setConfig(prev => ({ ...prev, ...patch }));
+    configDirtyRef.current = true;
+    setConfigDirty(true);
+  };
+
+  const discardConfigChanges = async () => {
+    configDirtyRef.current = false;
+    setConfigDirty(false);
+    // Re-fetch the current server config
+    try {
+      const t = Date.now();
+      const conf = await axios.get(`${API_BASE}/config?t=${t}`);
+      setConfig(conf.data);
+    } catch (e) {
+      console.error("Error discarding config:", e);
+    }
   };
 
   const showToast = (msg) => {
@@ -257,6 +283,8 @@ function App() {
   const saveConfig = async () => {
     try {
       await axios.post(`${API_BASE}/config`, config);
+      configDirtyRef.current = false;
+      setConfigDirty(false);
       showToast("Config saved successfully!");
     } catch (e) {
       showToast("Error saving config.");
@@ -590,47 +618,47 @@ function App() {
                 
                 <div className="input-group">
                   <label>Model ID</label>
-                  <input type="text" className="input" value={config.MODEL_ID || ''} onChange={e => setConfig({...config, MODEL_ID: e.target.value})} />
+                  <input type="text" className="input" value={config.MODEL_ID || ''} onChange={e => setConfigField({ MODEL_ID: e.target.value })} />
                 </div>
 
                 <div className="input-group">
                   <label>Fallback Model IDs (comma-separated)</label>
-                  <input type="text" className="input" value={config.FALLBACK_MODELS || ''} onChange={e => setConfig({...config, FALLBACK_MODELS: e.target.value})} />
+                  <input type="text" className="input" value={config.FALLBACK_MODELS || ''} onChange={e => setConfigField({ FALLBACK_MODELS: e.target.value })} />
                 </div>
 
                 <div className="input-group">
                   <label>Context Limit</label>
-                  <input type="number" className="input" value={config.CONTEXT_LIMIT || ''} onChange={e => setConfig({...config, CONTEXT_LIMIT: e.target.value})} />
+                  <input type="number" className="input" value={config.CONTEXT_LIMIT || ''} onChange={e => setConfigField({ CONTEXT_LIMIT: e.target.value })} />
                 </div>
 
                 <div className="input-group">
                   <label>Timeout (seconds)</label>
-                  <input type="number" className="input" value={config.TIMEOUT || ''} onChange={e => setConfig({...config, TIMEOUT: e.target.value})} />
+                  <input type="number" className="input" value={config.TIMEOUT || ''} onChange={e => setConfigField({ TIMEOUT: e.target.value })} />
                 </div>
 
                 <div className="input-group">
                   <label>Monitor RPM Limit</label>
-                  <input type="number" className="input" value={config.MONITOR_LIMIT_RPM || '15'} onChange={e => setConfig({...config, MONITOR_LIMIT_RPM: e.target.value})} />
+                  <input type="number" className="input" value={config.MONITOR_LIMIT_RPM || '15'} onChange={e => setConfigField({ MONITOR_LIMIT_RPM: e.target.value })} />
                 </div>
 
                 <div className="input-group">
                   <label>Monitor RPD Limit</label>
-                  <input type="number" className="input" value={config.MONITOR_LIMIT_RPD || '1500'} onChange={e => setConfig({...config, MONITOR_LIMIT_RPD: e.target.value})} />
+                  <input type="number" className="input" value={config.MONITOR_LIMIT_RPD || '1500'} onChange={e => setConfigField({ MONITOR_LIMIT_RPD: e.target.value })} />
                 </div>
 
                 <div className="input-group">
                   <label>Monitor Gemini TTS RPM Limit</label>
-                  <input type="number" className="input" value={config.MONITOR_LIMIT_TTS_RPM || '15'} onChange={e => setConfig({...config, MONITOR_LIMIT_TTS_RPM: e.target.value})} />
+                  <input type="number" className="input" value={config.MONITOR_LIMIT_TTS_RPM || '15'} onChange={e => setConfigField({ MONITOR_LIMIT_TTS_RPM: e.target.value })} />
                 </div>
 
                 <div className="input-group">
                   <label>Monitor Gemini TTS RPD Limit</label>
-                  <input type="number" className="input" value={config.MONITOR_LIMIT_TTS_RPD || '1500'} onChange={e => setConfig({...config, MONITOR_LIMIT_TTS_RPD: e.target.value})} />
+                  <input type="number" className="input" value={config.MONITOR_LIMIT_TTS_RPD || '1500'} onChange={e => setConfigField({ MONITOR_LIMIT_TTS_RPD: e.target.value })} />
                 </div>
 
                 <div className="input-group">
                   <label>Random Roast Chance: {config.RANDOM_ROAST_CHANCE}</label>
-                  <input type="range" min="0" max="1" step="0.01" className="range-slider" value={config.RANDOM_ROAST_CHANCE || 0} onChange={e => setConfig({...config, RANDOM_ROAST_CHANCE: e.target.value})} />
+                  <input type="range" min="0" max="1" step="0.01" className="range-slider" value={config.RANDOM_ROAST_CHANCE || 0} onChange={e => setConfigField({ RANDOM_ROAST_CHANCE: e.target.value })} />
                 </div>
 
                 <div className="input-group">
@@ -638,7 +666,7 @@ function App() {
                   <select 
                     className="input" 
                     value={config.TTS_ENGINE || 'edge'} 
-                    onChange={e => setConfig({...config, TTS_ENGINE: e.target.value})}
+                    onChange={e => setConfigField({ TTS_ENGINE: e.target.value })}
                   >
                     <option value="edge">Microsoft Edge TTS (Free, Natural Persian)</option>
                     <option value="gemini">Google Gemini TTS (Premium Native Audio)</option>
@@ -656,7 +684,7 @@ function App() {
                       className="range-slider" 
                       style={{ flex: 1 }}
                       value={config.TTS_VOICE_PITCH || '1.0'} 
-                      onChange={e => setConfig({...config, TTS_VOICE_PITCH: e.target.value})} 
+                      onChange={e => setConfigField({ TTS_VOICE_PITCH: e.target.value })} 
                     />
                     <span style={{ minWidth: 40, textAlign: 'right', fontWeight: '600', fontSize: 13, color: '#f3f4f6' }}>
                       {config.TTS_VOICE_PITCH || '1.0'}x
@@ -672,7 +700,7 @@ function App() {
                         type="text" 
                         className="input" 
                         value={config.TTS_GEMINI_MODEL || ''} 
-                        onChange={e => setConfig({...config, TTS_GEMINI_MODEL: e.target.value})} 
+                        onChange={e => setConfigField({ TTS_GEMINI_MODEL: e.target.value })} 
                       />
                     </div>
                     <div className="input-group">
@@ -680,7 +708,7 @@ function App() {
                       <select 
                         className="input" 
                         value={config.TTS_GEMINI_VOICE || 'Kore'} 
-                        onChange={e => setConfig({...config, TTS_GEMINI_VOICE: e.target.value})}
+                        onChange={e => setConfigField({ TTS_GEMINI_VOICE: e.target.value })}
                       >
                         <option value="Kore">Kore (Female, warm)</option>
                         <option value="Puck">Puck (Male, friendly)</option>
@@ -694,7 +722,7 @@ function App() {
                         type="checkbox" 
                         id="fallbackToEdge"
                         checked={(config.TTS_FALLBACK_TO_EDGE || 'True').toLowerCase() === 'true'} 
-                        onChange={e => setConfig({...config, TTS_FALLBACK_TO_EDGE: e.target.checked ? 'True' : 'False'})} 
+                        onChange={e => setConfigField({ TTS_FALLBACK_TO_EDGE: e.target.checked ? 'True' : 'False' })} 
                         style={{width: 20, height: 20, cursor: 'pointer'}}
                       />
                       <label htmlFor="fallbackToEdge" style={{cursor: 'pointer', margin: 0}}>Fallback to Edge TTS if all Gemini models fail</label>
@@ -706,7 +734,7 @@ function App() {
                     <select 
                       className="input" 
                       value={config.TTS_EDGE_VOICE || 'fa-IR-FaridNeural'} 
-                      onChange={e => setConfig({...config, TTS_EDGE_VOICE: e.target.value})}
+                      onChange={e => setConfigField({ TTS_EDGE_VOICE: e.target.value })}
                     >
                       <option value="fa-IR-FaridNeural">Farid Neural (Male, Colloquial)</option>
                       <option value="fa-IR-DilaraNeural">Dilara Neural (Female, Formal/Sweet)</option>
@@ -716,9 +744,15 @@ function App() {
 
                 <div className="input-group">
                   <label>System Persona Prompt</label>
-                  <textarea rows="6" className="input" value={config.SYSTEM_INSTRUCTION || ''} onChange={e => setConfig({...config, SYSTEM_INSTRUCTION: e.target.value})} />
+                  <textarea rows="6" className="input" value={config.SYSTEM_INSTRUCTION || ''} onChange={e => setConfigField({ SYSTEM_INSTRUCTION: e.target.value })} />
                 </div>
 
+                {configDirty && (
+                  <div style={{display: 'flex', gap: 8, alignItems: 'center', background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.4)', borderRadius: 8, padding: '8px 12px', marginBottom: 10}}>
+                    <span style={{flex: 1, fontSize: 12, color: '#fbbf24', fontWeight: 600}}>⚠️ Unsaved changes — auto-refresh paused</span>
+                    <button className="btn" style={{padding: '4px 10px', fontSize: 11, background: 'rgba(255,255,255,0.08)'}} onClick={discardConfigChanges}>Discard</button>
+                  </div>
+                )}
                 <button className="btn" style={{width: '100%', justifyContent: 'center'}} onClick={saveConfig}>
                   Save Configuration
                 </button>

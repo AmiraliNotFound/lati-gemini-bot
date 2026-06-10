@@ -693,15 +693,21 @@ async def download_instagram_post(url: str, cookies_path: str = None) -> tuple[l
         'skip_download': True,
         'quiet': True,
         'no_warnings': True,
+        # Critical: Instagram carousels can have image-only entries that have no video formats.
+        # ignore_no_formats_error prevents a hard crash on those entries.
+        'ignore_no_formats_error': True,
     }
 
     if cookies_path and os.path.exists(cookies_path):
         ydl_opts_base['cookiefile'] = cookies_path
 
-    # Try different impersonation targets as fallbacks if no cookies are present
-    targets = ['chrome-131:android-14', 'safari-18.0:ios-18.0', 'chrome-110:windows-10', 'chrome']
+    # Build ordered list of impersonation targets to try.
+    # When cookies are present we attempt no-impersonation first, then fall back
+    # to impersonation targets in case Instagram still rate-limits / blocks.
     if cookies_path and os.path.exists(cookies_path):
-        targets = [None]  # Don't force impersonation if cookies are present unless it fails
+        targets = [None, 'chrome-131:android-14', 'safari-18.0:ios-18.0', 'chrome-110:windows-10']
+    else:
+        targets = ['chrome-131:android-14', 'safari-18.0:ios-18.0', 'chrome-110:windows-10', 'chrome']
 
     info = None
     last_err = None
@@ -739,33 +745,49 @@ async def download_instagram_post(url: str, cookies_path: str = None) -> tuple[l
 
     async with aiohttp.ClientSession() as session:
         for idx, entry in enumerate(entries):
+            # 1. Try direct URL from the entry itself
             media_url = entry.get('url')
+
+            # 2. Try best format URL
             if not media_url and entry.get('formats'):
                 formats = entry.get('formats')
                 if formats:
                     media_url = formats[-1].get('url')
 
+            # 3. Fallback: Instagram image-only entries expose the full-res image
+            #    via the 'thumbnails' list (highest resolution is the last one).
+            #    This is the critical path for image posts & image slides in carousels.
             if not media_url:
+                thumbnails = entry.get('thumbnails') or []
+                if thumbnails:
+                    # Last thumbnail is typically highest resolution
+                    media_url = thumbnails[-1].get('url')
+
+            if not media_url:
+                logger.debug(f"Skipping carousel entry {idx}: no media URL found")
                 continue
 
+            # Determine media type
             ext = entry.get('ext') or ''
             media_type = 'photo'
-            if ext in ['mp4', 'mkv', 'webm', 'mov'] or entry.get('vcodec') != 'none':
-                if entry.get('acodec') != 'none' or entry.get('vcodec') != 'none':
-                    media_type = 'video'
-
-            if 'mp4' in media_url or media_type == 'video':
+            vcodec = entry.get('vcodec') or 'none'
+            if ext in ['mp4', 'mkv', 'webm', 'mov'] or (vcodec != 'none' and vcodec):
                 media_type = 'video'
+            # Also detect by URL pattern as a final check
+            if '.mp4' in media_url.lower() or 'video' in media_url.lower():
+                media_type = 'video'
+
+            if media_type == 'video':
                 filename = f"ig_item_{idx}_{uuid.uuid4().hex}.mp4"
             else:
-                media_type = 'photo'
                 filename = f"ig_item_{idx}_{uuid.uuid4().hex}.jpg"
 
             try:
                 headers = {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                    'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1'
                 }
-                async with session.get(media_url, headers=headers, timeout=30) as resp:
+                timeout = aiohttp.ClientTimeout(total=45)
+                async with session.get(media_url, headers=headers, timeout=timeout) as resp:
                     if resp.status == 200:
                         with open(filename, 'wb') as f:
                             f.write(await resp.read())
@@ -773,6 +795,8 @@ async def download_instagram_post(url: str, cookies_path: str = None) -> tuple[l
                             'path': filename,
                             'type': media_type
                         })
+                    else:
+                        logger.warning(f"Carousel item {idx} HTTP {resp.status} for URL: {media_url[:80]}")
             except Exception as dl_err:
                 logger.error(f"Failed to download carousel item {idx}: {dl_err}")
 
