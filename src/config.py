@@ -65,6 +65,7 @@ DEFAULT_CONFIG = {
     "TTS_GEMINI_VOICE": "Kore",
     "TTS_EDGE_VOICE": "fa-IR-FaridNeural",
     "TTS_FALLBACK_TO_EDGE": "True",
+    "TTS_VOICE_PITCH": "1.0",
     "SYSTEM_INSTRUCTION": (
         "تو یه رفیق صمیمی، فوق‌العاده باحال، حاضر جواب و بشدت تیکه‌انداز هستی که توی یه گپ صمیمی رفقات رو دست می‌ندازی و رنده میکنی. "
         "لحنت اصلاً نباید کتابی، محترمانه یا لوس باشه. کاملاً لاتی، عامیانه و تهرانی صحبت کن. "

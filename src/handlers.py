@@ -33,6 +33,30 @@ COOLDOWN_WINDOW = 60 # seconds
 MAX_REQUESTS_IN_WINDOW = 4
 
 def convert_audio_to_ogg(input_path: str, ogg_path: str, is_pcm: bool = False, sample_rate: int = 24000, channels: int = 1):
+    # Determine if custom pitch shifting is configured
+    try:
+        pitch_factor = float(config.runtime_config.get("TTS_VOICE_PITCH", "1.0"))
+    except Exception:
+        pitch_factor = 1.0
+
+    if pitch_factor != 1.0:
+        # Try running with rubberband filter first
+        cmd = ["ffmpeg", "-y"]
+        if is_pcm:
+            cmd.extend(["-f", "s16le", "-ar", str(sample_rate), "-ac", str(channels)])
+        cmd.extend(["-i", input_path, "-af", f"rubberband=pitch={pitch_factor}", "-acodec", "libopus", ogg_path])
+        try:
+            subprocess.run(
+                cmd,
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+            return
+        except subprocess.CalledProcessError as e:
+            logger.warning(f"ffmpeg rubberband filter failed (likely not supported on this platform): {e}. Falling back to default pitch.")
+
+    # Default / fallback path without pitch shifting
     cmd = ["ffmpeg", "-y"]
     if is_pcm:
         cmd.extend(["-f", "s16le", "-ar", str(sample_rate), "-ac", str(channels)])

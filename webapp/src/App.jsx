@@ -638,6 +638,25 @@ function App() {
                   </select>
                 </div>
 
+                <div className="input-group">
+                  <label>Voice Pitch Modifier (e.g. 0.85 for a deep adult voice with mustache, 1.0 for default)</label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <input 
+                      type="range" 
+                      min="0.5" 
+                      max="1.5" 
+                      step="0.05" 
+                      className="range-slider" 
+                      style={{ flex: 1 }}
+                      value={config.TTS_VOICE_PITCH || '1.0'} 
+                      onChange={e => setConfig({...config, TTS_VOICE_PITCH: e.target.value})} 
+                    />
+                    <span style={{ minWidth: 40, textAlign: 'right', fontWeight: '600', fontSize: 13, color: '#f3f4f6' }}>
+                      {config.TTS_VOICE_PITCH || '1.0'}x
+                    </span>
+                  </div>
+                </div>
+
                 {config.TTS_ENGINE === 'gemini' ? (
                   <>
                     <div className="input-group">
