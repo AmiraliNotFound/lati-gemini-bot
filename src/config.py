@@ -56,6 +56,8 @@ DEFAULT_CONFIG = {
     "FALLBACK_MODELS": "gemini-2.5-flash-lite,gemini-2.5-flash,gemma-4-31b-it",
     "CONTEXT_LIMIT": "12",
     "TIMEOUT": "12.0",
+    "MONITOR_LIMIT_RPM": "15",
+    "MONITOR_LIMIT_RPD": "1500",
     "TTS_ENGINE": "edge",  # "edge" or "gemini"
     "TTS_GEMINI_MODEL": "gemini-2.5-flash-preview-tts,gemini-3.1-flash-tts-preview",
     "TTS_GEMINI_VOICE": "Kore",

@@ -321,17 +321,27 @@ async def get_model_limits(request):
     # Fetch details for each model from GenAI client
     from src.handlers import get_ai_client
     
+    try:
+        limit_rpm = int(config.runtime_config.get("MONITOR_LIMIT_RPM", "15"))
+    except ValueError:
+        limit_rpm = 15
+
+    try:
+        limit_rpd = int(config.runtime_config.get("MONITOR_LIMIT_RPD", "1500"))
+    except ValueError:
+        limit_rpd = 1500
+        
     STANDARD_RATE_LIMITS = {
-        "gemini-2.5-flash": {"rpm": 15, "tpm": 1000000, "rpd": 1500},
-        "gemini-2.5-flash-lite": {"rpm": 15, "tpm": 1000000, "rpd": 1500},
-        "gemini-2.0-flash": {"rpm": 15, "tpm": 1000000, "rpd": 1500},
-        "gemini-2.0-flash-lite": {"rpm": 15, "tpm": 1000000, "rpd": 1500},
-        "gemini-1.5-flash": {"rpm": 15, "tpm": 1000000, "rpd": 1500},
-        "gemini-1.5-flash-8b": {"rpm": 15, "tpm": 1000000, "rpd": 1500},
-        "gemini-1.5-pro": {"rpm": 2, "tpm": 32000, "rpd": 50},
-        "gemini-2.5-pro": {"rpm": 2, "tpm": 32000, "rpd": 50}
+        "gemini-2.5-flash": {"rpm": limit_rpm, "tpm": 1000000, "rpd": limit_rpd},
+        "gemini-2.5-flash-lite": {"rpm": limit_rpm, "tpm": 1000000, "rpd": limit_rpd},
+        "gemini-2.0-flash": {"rpm": limit_rpm, "tpm": 1000000, "rpd": limit_rpd},
+        "gemini-2.0-flash-lite": {"rpm": limit_rpm, "tpm": 1000000, "rpd": limit_rpd},
+        "gemini-1.5-flash": {"rpm": limit_rpm, "tpm": 1000000, "rpd": limit_rpd},
+        "gemini-1.5-flash-8b": {"rpm": limit_rpm, "tpm": 1000000, "rpd": limit_rpd},
+        "gemini-1.5-pro": {"rpm": limit_rpm, "tpm": 32000, "rpd": limit_rpd},
+        "gemini-2.5-pro": {"rpm": limit_rpm, "tpm": 32000, "rpd": limit_rpd}
     }
-    DEFAULT_LIMITS = {"rpm": 15, "tpm": 1000000, "rpd": 1500}
+    DEFAULT_LIMITS = {"rpm": limit_rpm, "tpm": 1000000, "rpd": limit_rpd}
     
     models_data = []
     
