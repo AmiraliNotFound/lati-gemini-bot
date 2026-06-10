@@ -36,8 +36,9 @@ function App() {
   const [topUsers, setTopUsers] = useState([]);
   const [loadingTopUsers, setLoadingTopUsers] = useState(false);
   const [alertText, setAlertText] = useState('');
-  const [overrideRoastChance, setOverrideRoastChance] = useState(false);
-  const [overrideCooldown, setOverrideCooldown] = useState(false);
+  const [editMuted, setEditMuted] = useState(false);
+  const [editOverrideRoast, setEditOverrideRoast] = useState(false);
+  const [editOverrideCooldown, setEditOverrideCooldown] = useState(false);
   const [customRoastChanceValue, setCustomRoastChanceValue] = useState(0.02);
   const [customCooldownValue, setCustomCooldownValue] = useState(60);
   const [savingSettings, setSavingSettings] = useState(false);
