@@ -57,7 +57,7 @@ DEFAULT_CONFIG = {
     "CONTEXT_LIMIT": "12",
     "TIMEOUT": "12.0",
     "TTS_ENGINE": "edge",  # "edge" or "gemini"
-    "TTS_GEMINI_MODEL": "gemini-2.5-flash-tts",
+    "TTS_GEMINI_MODEL": "gemini-2.5-flash-preview-tts",
     "TTS_GEMINI_VOICE": "Kore",
     "TTS_EDGE_VOICE": "fa-IR-FaridNeural",
     "SYSTEM_INSTRUCTION": (
