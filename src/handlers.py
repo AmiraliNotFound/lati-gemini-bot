@@ -387,13 +387,210 @@ async def ask_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         bot_response = response.text if response.text else "🗿 بنال ببینم چی میگی..."
         bot_response = re.sub(r"^Bot\s*\([^)]+\):\s*", "", bot_response).strip()
         
-        # Reply to user
         await status_msg.edit_text(bot_response)
         
     except Exception as e:
         logger.error(f"Error in ask_handler: {e}")
         await database.log_error(config.DB_FILE, "ASK_HANDLER_ERROR", f"Error in ask_handler: {e}", traceback.format_exc())
         await status_msg.edit_text("مغزم ارور داد... یه بار دیگه بپرس 🚶‍♂️")
+
+
+async def transcribe_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Transcribes the voice/audio message being replied to using Gemini.
+    """
+    if not update.message:
+        return
+        
+    chat_id = update.message.chat_id
+    
+    # Verify it is a reply
+    replied_msg = update.message.reply_to_message
+    if not replied_msg:
+        await update.message.reply_text(
+            "⚠️ این دستور را باید روی یک پیام صوتی (ویس) ریپلای کنی! 🗿",
+            reply_to_message_id=update.message.message_id
+        )
+        return
+        
+    # Check if the replied message has a voice or audio file
+    voice = replied_msg.voice or replied_msg.audio
+    if not voice:
+        await update.message.reply_text(
+            "⚠️ این پیام ویس نیست که بتونم متنش کنم! 🥱",
+            reply_to_message_id=update.message.message_id
+        )
+        return
+        
+    status_msg = await update.message.reply_text(
+        "⏳ در حال دانلود و ترجمه صوت به متن... منتظر بمون...",
+        reply_to_message_id=update.message.message_id
+    )
+    
+    try:
+        # Download voice file
+        voice_file = await context.bot.get_file(voice.file_id)
+        voice_bytes = await voice_file.download_as_bytearray()
+        
+        # Call Gemini to transcribe
+        client = get_ai_client()
+        model_id = config.runtime_config.get("MODEL_ID", "gemini-2.5-flash")
+        
+        contents = [
+            types.Part.from_bytes(data=bytes(voice_bytes), mime_type="audio/ogg"),
+            (
+                "Transcribe this audio precisely as spoken in Persian. Output ONLY the transcription text, "
+                "completely verbatim without any translation, introduction, explanations or wrappers."
+            )
+        ]
+        
+        timeout_threshold = float(config.runtime_config.get("TIMEOUT", 12.0))
+        
+        # Run model chain with failover support
+        fallback_str = config.runtime_config.get("FALLBACK_MODELS", "gemini-2.5-flash-lite,gemini-2.5-flash,gemma-4-31b-it")
+        fallback_list = [m.strip() for m in fallback_str.split(",") if m.strip()]
+        candidate_models = [model_id]
+        for fb in fallback_list:
+            if fb not in candidate_models:
+                candidate_models.append(fb)
+                
+        response = None
+        for current_model in candidate_models:
+            try:
+                logger.info(f"Attempting voice transcription using model: {current_model}")
+                response = await asyncio.wait_for(
+                    client.models.generate_content(
+                        model=current_model,
+                        contents=contents
+                    ),
+                    timeout=timeout_threshold
+                )
+                await database.log_api_request(config.DB_FILE, current_model, "text", "success")
+                break
+            except Exception as e:
+                await database.log_api_request(config.DB_FILE, current_model, "text", "error")
+                logger.warning(f"Transcription model {current_model} failed: {e}")
+                
+        if not response or not response.text:
+            raise ValueError("All models failed or returned empty text for voice transcription.")
+            
+        transcription = response.text.strip()
+        
+        # Send transcription text
+        reply_text = f"🗣 *متن ویس:* \n\n<blockquote>{transcription}</blockquote>"
+        await status_msg.edit_text(reply_text, parse_mode="HTML")
+        
+    except Exception as e:
+        logger.error(f"Error transcribing voice note: {e}")
+        await database.log_error(config.DB_FILE, "TRANSCRIBE_ERROR", f"Failed to transcribe voice note: {e}", traceback.format_exc())
+        await status_msg.edit_text("❌ متأسفانه نتونستم متن این ویس رو بردارم. سرورها یاری نمی‌کنن 🚶‍♂️")
+
+
+async def support_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Forwards user support queries to admins. Only active in DMs.
+    """
+    if not update.message:
+        return
+        
+    if update.effective_chat.type != "private":
+        # Ignore support requests sent in group chats
+        return
+        
+    args = context.args
+    if not args:
+        await update.message.reply_text(
+            "📝 برای ارسال پیام به ادمین، متنت رو بعد از دستور بنویس.\n\n"
+            "مثال: `/support سلام، ربات کار نمیکنه`",
+            parse_mode="Markdown"
+        )
+        return
+        
+    support_text = " ".join(args).strip()
+    user = update.effective_user
+    
+    sender_info = f"👤 فرستنده: {user.first_name} {user.last_name or ''}\n"
+    if user.username:
+        sender_info += f"🆔 یوزرنیم: @{user.username}\n"
+    sender_info += f"🔑 شناسه کاربر: `{user.id}`"
+    
+    # Query all registered admin chat IDs
+    admin_chat_ids = []
+    try:
+        import aiosqlite
+        async with aiosqlite.connect(config.DB_FILE) as db:
+            # Check if table exists, and query
+            async with db.execute("SELECT chat_id FROM admin_chats") as cursor:
+                rows = await cursor.fetchall()
+                admin_chat_ids = [r[0] for r in rows]
+    except Exception as db_err:
+        logger.error(f"Failed to query admin chats: {db_err}")
+        
+    if not admin_chat_ids:
+        await update.message.reply_text(
+            "❌ متأسفانه در حال حاضر ارتباط برقرار نشد چون ادمین فعال ثبت‌نشده. "
+            "صبر کن تا یکی از ادمین‌ها دستور `/admin` رو بنویسه تا ثبت بشه. 🗿"
+        )
+        return
+        
+    sent_count = 0
+    for admin_cid in admin_chat_ids:
+        try:
+            await context.bot.send_message(
+                chat_id=admin_cid,
+                text=f"📬 *پیام پشتیبانی جدید:*\n\n{sender_info}\n\n📝 *متن پیام:*\n{support_text}",
+                parse_mode="Markdown"
+            )
+            sent_count += 1
+        except Exception as forward_err:
+            logger.error(f"Failed to send support forward to admin chat {admin_cid}: {forward_err}")
+            
+    if sent_count > 0:
+        await update.message.reply_text("✅ پیام شما با موفقیت برای مدیریت ارسال شد. به زودی همینجا پاسخ داده خواهد شد.")
+    else:
+        await update.message.reply_text("❌ مشکلی در ارسال پیام پیش آمد. لطفا بعدا امتحان کنید.")
+
+
+async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Allows system admins to reply back to support requests.
+    Usage: /reply <user_id> <message>
+    """
+    if not update.message:
+        return
+        
+    username = update.effective_user.username
+    if not username or username.lower() not in config.ALLOWED_ADMINS:
+        logger.warning(f"Unauthorized use of /reply command by user: {username}")
+        return
+        
+    args = context.args
+    if len(args) < 2:
+        await update.message.reply_text(
+            "⚠️ استفاده نادرست. فرمت صحیح:\n"
+            "`/reply <user_id> <text>`",
+            parse_mode="Markdown"
+        )
+        return
+        
+    target_user_id_str = args[0]
+    reply_text = " ".join(args[1:]).strip()
+    
+    try:
+        target_user_id = int(target_user_id_str)
+        # Send reply message to user
+        await context.bot.send_message(
+            chat_id=target_user_id,
+            text=f"✉️ *پاسخ مدیریت به پیام پشتیبانی شما:*\n\n{reply_text}",
+            parse_mode="Markdown"
+        )
+        await update.message.reply_text(f"✅ پاسخ شما برای کاربر `{target_user_id}` ارسال شد.")
+    except ValueError:
+        await update.message.reply_text("❌ خطا: شناسه کاربر باید عدد باشد.")
+    except Exception as send_err:
+        logger.error(f"Failed to send admin reply to user {target_user_id_str}: {send_err}")
+        await update.message.reply_text(f"❌ خطا در ارسال پاسخ به کاربر: {send_err}")
+
 
 async def admin_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Enables authenticated users to query or update system settings securely via private chat."""
@@ -407,6 +604,12 @@ async def admin_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_private or not username or username.lower() not in config.ALLOWED_ADMINS:
         logger.warning(f"Unauthorized admin attempt by user: {username} in chat {update.effective_chat.id}")
         return
+
+    # Dynamically register admin chat ID
+    try:
+        await database.register_admin_chat(config.DB_FILE, username, update.effective_user.id)
+    except Exception as reg_err:
+        logger.error(f"Failed to register admin chat in admin_handler: {reg_err}")
 
     args = context.args
     if not args:
@@ -1275,6 +1478,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sender_username = update.message.from_user.username
     is_admin = sender_username and sender_username.lower() in config.ALLOWED_ADMINS
 
+    if is_admin:
+        try:
+            await database.register_admin_chat(config.DB_FILE, sender_username, user_id)
+        except Exception as reg_err:
+            logger.error(f"Failed to register admin chat in handle_message: {reg_err}")
+
     # 1. Enforce Blocks
     if await database.is_blocked(config.DB_FILE, user_id):
         return # Ignore blocked user
@@ -1397,7 +1606,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if first_name and first_name != full_name:
                 special_instruction = await database.get_special_user_instruction(config.DB_FILE, first_name)
         
-    system_instruction = special_instruction if special_instruction else config.runtime_config["SYSTEM_INSTRUCTION"]
+    if special_instruction:
+        system_instruction = special_instruction
+    else:
+        chat_custom_instruction = chat_settings.get("custom_system_instruction")
+        system_instruction = chat_custom_instruction if chat_custom_instruction else config.runtime_config["SYSTEM_INSTRUCTION"]
 
     # 3. Pull historical sequence slices (Invert chronologically)
     history = await database.get_chat_history(config.DB_FILE, chat_id, context_limit)

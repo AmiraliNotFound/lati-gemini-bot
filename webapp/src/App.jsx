@@ -21,9 +21,10 @@ function App() {
   const [configDirty, setConfigDirty] = useState(false); // Mirror for UI reactivity
   const [loading, setLoading] = useState(true);
 
-  // Forms state
   const [newSpecial, setNewSpecial] = useState({ username: '', instruction: '' });
   const [broadcastMsg, setBroadcastMsg] = useState('');
+  const [editingSpecial, setEditingSpecial] = useState(null);
+  const [editingSpecialInstruction, setEditingSpecialInstruction] = useState('');
 
   // UI state
   const [toast, setToast] = useState(null);
@@ -48,6 +49,14 @@ function App() {
   const [customTtsEngine, setCustomTtsEngine] = useState('edge');
   const [editOverrideModel, setEditOverrideModel] = useState(false);
   const [customModel, setCustomModel] = useState('');
+  const [customSystemInstructionValue, setCustomSystemInstructionValue] = useState('');
+
+  // Preset management states
+  const [editingPresetIndex, setEditingPresetIndex] = useState(null);
+  const [editPresetName, setEditPresetName] = useState('');
+  const [editPresetPrompt, setEditPresetPrompt] = useState('');
+  const [newPresetName, setNewPresetName] = useState('');
+  const [newPresetPrompt, setNewPresetPrompt] = useState('');
 
   // Model limits states
   const [modelLimits, setModelLimits] = useState(null);
@@ -105,6 +114,7 @@ function App() {
     setCustomTtsEngine(chat.custom_tts_engine || 'edge');
     setEditOverrideModel(chat.custom_model !== null && chat.custom_model !== undefined);
     setCustomModel(chat.custom_model || '');
+    setCustomSystemInstructionValue(chat.custom_system_instruction || '');
     setAlertText('');
     setTopUsers([]);
     if (chat.type !== 'private') {
@@ -133,7 +143,8 @@ function App() {
         custom_roast_chance: editOverrideRoast ? parseFloat(customRoastChanceValue) : null,
         custom_cooldown: editOverrideCooldown ? parseInt(customCooldownValue) : null,
         custom_tts_engine: editOverrideTts ? customTtsEngine : null,
-        custom_model: editOverrideModel ? customModel : null
+        custom_model: editOverrideModel ? customModel : null,
+        custom_system_instruction: customSystemInstructionValue || null
       });
       showToast("Chat settings saved successfully!");
       fetchData(); // Refresh list to get updated setting values
@@ -145,7 +156,8 @@ function App() {
         custom_roast_chance: editOverrideRoast ? parseFloat(customRoastChanceValue) : null,
         custom_cooldown: editOverrideCooldown ? parseInt(customCooldownValue) : null,
         custom_tts_engine: editOverrideTts ? customTtsEngine : null,
-        custom_model: editOverrideModel ? customModel : null
+        custom_model: editOverrideModel ? customModel : null,
+        custom_system_instruction: customSystemInstructionValue || null
       }));
     } catch (e) {
       const reason = e.response?.data?.reason || "Failed to save settings.";
@@ -320,6 +332,19 @@ function App() {
     }
   };
 
+  const saveSpecialEdit = async (username) => {
+    if (!editingSpecialInstruction.trim()) return showToast("Instruction cannot be empty");
+    try {
+      await axios.post(`${API_BASE}/specials`, { username, instruction: editingSpecialInstruction });
+      setEditingSpecial(null);
+      setEditingSpecialInstruction('');
+      showToast("Special user instructions updated!");
+      fetchData();
+    } catch (e) {
+      showToast("Error updating special user.");
+    }
+  };
+
   const removeSpecial = async (username) => {
     const confirm = await askConfirm(`Remove ${username}?`);
     if (confirm) {
@@ -331,6 +356,53 @@ function App() {
         showToast("Error removing user.");
       }
     }
+  };
+
+  const addPreset = () => {
+    if (!newPresetName.trim() || !newPresetPrompt.trim()) return showToast("Fill preset name and prompt");
+    let currentPresets = [];
+    try {
+      currentPresets = JSON.parse(config?.PERSONA_PRESETS || '[]');
+    } catch(e) {
+      currentPresets = [];
+    }
+    const updated = [...currentPresets, { name: newPresetName, prompt: newPresetPrompt }];
+    setConfigField({ PERSONA_PRESETS: JSON.stringify(updated) });
+    setNewPresetName('');
+    setNewPresetPrompt('');
+    showToast("Preset added! Don't forget to save config.");
+  };
+
+  const deletePreset = (idx) => {
+    let currentPresets = [];
+    try {
+      currentPresets = JSON.parse(config?.PERSONA_PRESETS || '[]');
+    } catch(e) {
+      currentPresets = [];
+    }
+    const updated = currentPresets.filter((_, i) => i !== idx);
+    setConfigField({ PERSONA_PRESETS: JSON.stringify(updated) });
+    showToast("Preset deleted! Don't forget to save config.");
+  };
+
+  const startEditPreset = (idx, name, prompt) => {
+    setEditingPresetIndex(idx);
+    setEditPresetName(name);
+    setEditPresetPrompt(prompt);
+  };
+
+  const savePresetEdit = (idx) => {
+    if (!editPresetName.trim() || !editPresetPrompt.trim()) return showToast("Preset name and prompt cannot be empty");
+    let currentPresets = [];
+    try {
+      currentPresets = JSON.parse(config?.PERSONA_PRESETS || '[]');
+    } catch(e) {
+      currentPresets = [];
+    }
+    const updated = currentPresets.map((p, i) => i === idx ? { name: editPresetName, prompt: editPresetPrompt } : p);
+    setConfigField({ PERSONA_PRESETS: JSON.stringify(updated) });
+    setEditingPresetIndex(null);
+    showToast("Preset updated! Don't forget to save config.");
   };
 
   const sendBroadcast = async () => {
@@ -551,15 +623,45 @@ function App() {
                   
                   {specials
                     .filter(s => s.username.toLowerCase().includes(searchTerm.toLowerCase()) || s.instruction.toLowerCase().includes(searchTerm.toLowerCase()))
-                    .map(s => (
-                      <div className="list-item" key={s.username} style={{alignItems: 'flex-start', flexDirection: 'column', gap: 8, padding: '12px 0'}}>
-                        <div style={{display:'flex', justifyContent:'space-between', width:'100%', alignItems: 'center'}}>
-                          <div className="item-name" style={{fontWeight: 600}}>{s.username.startsWith('@') || s.username.includes(' ') ? s.username : `@${s.username}`}</div>
-                          <button className="btn btn-danger" style={{padding: '4px 8px', fontSize: 12}} onClick={() => removeSpecial(s.username)}>Remove</button>
+                    .map(s => {
+                      const isEditing = editingSpecial === s.username;
+                      return (
+                        <div className="list-item" key={s.username} style={{alignItems: 'flex-start', flexDirection: 'column', gap: 8, padding: '12px 0'}}>
+                          <div style={{display:'flex', justifyContent:'space-between', width:'100%', alignItems: 'center'}}>
+                            <div className="item-name" style={{fontWeight: 600}}>{s.username.startsWith('@') || s.username.includes(' ') ? s.username : `@${s.username}`}</div>
+                            <div style={{display: 'flex', gap: 6}}>
+                              {!isEditing && (
+                                <button className="btn" style={{padding: '4px 8px', fontSize: 12, background: 'var(--tg-theme-button-color)'}} onClick={() => {
+                                  setEditingSpecial(s.username);
+                                  setEditingSpecialInstruction(s.instruction);
+                                }}>Edit</button>
+                              )}
+                              <button className="btn btn-danger" style={{padding: '4px 8px', fontSize: 12}} onClick={() => removeSpecial(s.username)}>Remove</button>
+                            </div>
+                          </div>
+                          {isEditing ? (
+                            <div style={{width: '100%', display: 'flex', flexDirection: 'column', gap: 8}}>
+                              <textarea 
+                                className="input" 
+                                rows="3" 
+                                value={editingSpecialInstruction} 
+                                onChange={(e) => setEditingSpecialInstruction(e.target.value)}
+                                style={{background: 'rgba(0,0,0,0.2)'}}
+                              />
+                              <div style={{display: 'flex', gap: 6, justifyContent: 'flex-end'}}>
+                                <button className="btn" style={{padding: '4px 12px', fontSize: 12, background: '#10b981', color: '#fff'}} onClick={() => saveSpecialEdit(s.username)}>Save</button>
+                                <button className="btn" style={{padding: '4px 12px', fontSize: 12, background: 'rgba(255,255,255,0.06)'}} onClick={() => {
+                                  setEditingSpecial(null);
+                                  setEditingSpecialInstruction('');
+                                }}>Cancel</button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="item-sub" style={{background: 'rgba(255,255,255,0.04)', padding: 10, borderRadius: 8, width: '100%', wordBreak: 'break-word', border: '1px solid var(--border-color)'}}>{s.instruction}</div>
+                          )}
                         </div>
-                        <div className="item-sub" style={{background: 'rgba(255,255,255,0.04)', padding: 10, borderRadius: 8, width: '100%', wordBreak: 'break-word', border: '1px solid var(--border-color)'}}>{s.instruction}</div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   {specials.filter(s => s.username.toLowerCase().includes(searchTerm.toLowerCase()) || s.instruction.toLowerCase().includes(searchTerm.toLowerCase())).length === 0 && (
                     <p style={{color: '#a1a1aa'}}>No special users registered matching criteria.</p>
                   )}
@@ -774,6 +876,151 @@ function App() {
                 <button className="btn" style={{width: '100%', justifyContent: 'center'}} onClick={saveConfig}>
                   Save Configuration
                 </button>
+              </div>
+
+              {/* Persona Prompt Presets */}
+              <div className="card">
+                <h2><MessageSquare size={18}/> Persona Prompt Presets</h2>
+                <p style={{fontSize: 12, color: 'var(--tg-theme-hint-color)', marginBottom: 16}}>
+                  Manage prompt presets that admins can quickly assign to group chats.
+                </p>
+
+                {(() => {
+                  let parsedPresets = [];
+                  try {
+                    parsedPresets = JSON.parse(config.PERSONA_PRESETS || '[]');
+                  } catch(e) {
+                    parsedPresets = [];
+                  }
+
+                  return (
+                    <div style={{display: 'flex', flexDirection: 'column', gap: 12}}>
+                      {parsedPresets.map((preset, idx) => {
+                        const isEditing = editingPresetIndex === idx;
+                        return (
+                          <div key={idx} style={{border: '1px solid var(--border-color)', borderRadius: 12, padding: 12, background: 'rgba(255,255,255,0.01)'}}>
+                            {isEditing ? (
+                              <div style={{display: 'flex', flexDirection: 'column', gap: 8}}>
+                                <div className="input-group" style={{margin: 0}}>
+                                  <label style={{fontSize: 11}}>Preset Name</label>
+                                  <input 
+                                    type="text" 
+                                    className="input" 
+                                    value={editPresetName} 
+                                    onChange={e => setEditPresetName(e.target.value)} 
+                                  />
+                                </div>
+                                <div className="input-group" style={{margin: 0}}>
+                                  <label style={{fontSize: 11}}>Prompt Instructions</label>
+                                  <textarea 
+                                    rows="4" 
+                                    className="input" 
+                                    value={editPresetPrompt} 
+                                    onChange={e => setEditPresetPrompt(e.target.value)} 
+                                  />
+                                </div>
+                                <div style={{display: 'flex', gap: 6, justifyContent: 'flex-end', marginTop: 4}}>
+                                  <button className="btn" style={{padding: '4px 12px', fontSize: 11, background: '#10b981', color: '#fff'}} onClick={() => savePresetEdit(idx)}>Save</button>
+                                  <button className="btn" style={{padding: '4px 12px', fontSize: 11, background: 'rgba(255,255,255,0.06)'}} onClick={() => setEditingPresetIndex(null)}>Cancel</button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div>
+                                <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6}}>
+                                  <strong style={{fontSize: 14, color: '#f3f4f6'}}>{preset.name}</strong>
+                                  <div style={{display: 'flex', gap: 6}}>
+                                    <button className="btn" style={{padding: '2px 8px', fontSize: 11, background: 'rgba(255,255,255,0.06)'}} onClick={() => startEditPreset(idx, preset.name, preset.prompt)}>Edit</button>
+                                    <button className="btn btn-danger" style={{padding: '2px 8px', fontSize: 11}} onClick={() => deletePreset(idx)}>Remove</button>
+                                  </div>
+                                </div>
+                                <p style={{fontSize: 12, color: 'var(--tg-theme-hint-color)', whiteSpace: 'pre-wrap', margin: 0}}>{preset.prompt}</p>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+
+                      {parsedPresets.length === 0 && (
+                        <p style={{color: 'var(--tg-theme-hint-color)', fontSize: 12, textAlign: 'center', margin: '10px 0'}}>No custom presets defined. Add one below.</p>
+                      )}
+
+                      <hr style={{borderColor: 'var(--border-color)', margin: '12px 0'}} />
+
+                      {/* Add Preset Form */}
+                      <div style={{background: 'rgba(255,255,255,0.02)', borderRadius: 12, padding: 12, border: '1px dashed var(--border-color)'}}>
+                        <strong style={{fontSize: 13, display: 'block', marginBottom: 10, color: '#f3f4f6'}}>Create New Preset</strong>
+                        <div className="input-group" style={{marginBottom: 8}}>
+                          <label style={{fontSize: 11}}>Preset Name</label>
+                          <input 
+                            type="text" 
+                            className="input" 
+                            placeholder="e.g. Sarcastic Assistant" 
+                            value={newPresetName} 
+                            onChange={e => setNewPresetName(e.target.value)} 
+                          />
+                        </div>
+                        <div className="input-group" style={{marginBottom: 10}}>
+                          <label style={{fontSize: 11}}>Prompt Instructions</label>
+                          <textarea 
+                            rows="3" 
+                            className="input" 
+                            placeholder="Instructions for the AI model..." 
+                            value={newPresetPrompt} 
+                            onChange={e => setNewPresetPrompt(e.target.value)} 
+                          />
+                        </div>
+                        <button className="btn" style={{width: '100%', justifyContent: 'center'}} onClick={addPreset}>
+                          Add Preset
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* Daily Chat Summaries */}
+              <div className="card">
+                <h2><Clock size={18}/> Daily Chat Summaries</h2>
+                <p style={{fontSize: 12, color: 'var(--tg-theme-hint-color)', marginBottom: 16}}>
+                  Schedule a background task to automatically post an AI summary of today's group conversations.
+                </p>
+
+                <div className="flex-row-between" style={{marginBottom: 16}}>
+                  <div>
+                    <span style={{fontWeight: 600, fontSize: 13}}>Enable Daily Summaries</span>
+                    <p style={{fontSize: 11, color: 'var(--tg-theme-hint-color)'}}>
+                      Automatically generate and post chat summaries in active groups.
+                    </p>
+                  </div>
+                  <label className="toggle-switch">
+                    <input 
+                      type="checkbox" 
+                      checked={(config.DAILY_SUMMARY_ENABLED || 'False').toLowerCase() === 'true'} 
+                      onChange={e => setConfigField({ DAILY_SUMMARY_ENABLED: e.target.checked ? 'True' : 'False' })} 
+                    />
+                    <span className="toggle-slider"></span>
+                  </label>
+                </div>
+
+                <div className="input-group">
+                  <label>Scheduled Posting Time (HH:MM)</label>
+                  <input 
+                    type="time" 
+                    className="input" 
+                    value={config.DAILY_SUMMARY_TIME || '00:00'} 
+                    onChange={e => setConfigField({ DAILY_SUMMARY_TIME: e.target.value })} 
+                  />
+                </div>
+
+                <div className="input-group">
+                  <label>Daily Summary System Prompt</label>
+                  <textarea 
+                    rows="4" 
+                    className="input" 
+                    value={config.DAILY_SUMMARY_PROMPT || ''} 
+                    onChange={e => setConfigField({ DAILY_SUMMARY_PROMPT: e.target.value })} 
+                  />
+                </div>
               </div>
 
               {/* Advanced VPS Controls */}
@@ -1211,6 +1458,61 @@ function App() {
                   </div>
                 )}
               </div>
+
+              {/* Persona Preset Override (Only for Groups/Supergroups) */}
+              {(selectedChat.type === 'group' || selectedChat.type === 'supergroup') && (
+                <div style={{marginBottom: 20}}>
+                  <span style={{fontWeight: 600, fontSize: 13, display: 'block', marginBottom: 4}}>Chat Persona Prompt Preset</span>
+                  <p style={{fontSize: 11, color: 'var(--tg-theme-hint-color)', marginBottom: 8}}>
+                    Select a prompt preset for this group chat.
+                  </p>
+                  {(() => {
+                    let parsedPresets = [];
+                    try {
+                      parsedPresets = JSON.parse(config?.PERSONA_PRESETS || '[]');
+                    } catch(e) {
+                      parsedPresets = [];
+                    }
+                    
+                    // Determine if the current custom instruction matches one of the presets
+                    const isPresetMatch = customSystemInstructionValue === '' || 
+                      parsedPresets.some(p => p.prompt === customSystemInstructionValue);
+
+                    return (
+                      <div style={{display: 'flex', flexDirection: 'column', gap: 8}}>
+                        <select 
+                          className="input" 
+                          value={isPresetMatch ? customSystemInstructionValue : 'custom_override'} 
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (val === 'custom_override') {
+                              // keep custom value
+                            } else {
+                              setCustomSystemInstructionValue(val);
+                            }
+                          }}
+                        >
+                          <option value="">Global Default Persona</option>
+                          {parsedPresets.map((preset, idx) => (
+                            <option key={idx} value={preset.prompt}>{preset.name}</option>
+                          ))}
+                          {!isPresetMatch && (
+                            <option value="custom_override">Custom Unique Persona</option>
+                          )}
+                        </select>
+                        <textarea 
+                          className="input"
+                          rows="4"
+                          placeholder="Persona prompt details..."
+                          value={customSystemInstructionValue}
+                          onChange={(e) => setCustomSystemInstructionValue(e.target.value)}
+                          style={{fontSize: 12, lineHeight: 1.4, background: 'rgba(0,0,0,0.15)'}}
+                        />
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
 
               <button className="btn" style={{width: '100%', justifyContent: 'center'}} onClick={saveChatSettings} disabled={savingSettings}>
                 {savingSettings ? 'Saving...' : 'Save Settings'}
