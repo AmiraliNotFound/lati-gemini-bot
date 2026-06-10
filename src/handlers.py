@@ -19,7 +19,7 @@ try:
 except ImportError:
     edge_tts = None
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo, InputMediaPhoto, InputMediaVideo
 from telegram.ext import ContextTypes
 from google import genai
 from google.genai import types
@@ -673,12 +673,257 @@ def generate_video_thumbnail(video_path: str, thumbnail_path: str) -> bool:
             pass
     return False
 
+async def download_instagram_post(url: str, cookies_path: str = None) -> tuple[list[dict], dict]:
+    """
+    Extracts all media from an Instagram URL.
+    Returns: (list_of_items, metadata_dict)
+    where list_of_items is [{'path': '...', 'type': 'photo'|'video'}]
+    and metadata_dict is {'uploader': '...', 'caption': '...', 'webpage_url': '...'}
+    """
+    import aiohttp
+    if not yt_dlp:
+        raise ImportError("yt_dlp is not installed")
+
+    # Clean URL
+    url = url.split("?")[0]
+
+    # Configure yt-dlp options
+    ydl_opts_base = {
+        'extract_flat': False,
+        'skip_download': True,
+        'quiet': True,
+        'no_warnings': True,
+    }
+
+    if cookies_path and os.path.exists(cookies_path):
+        ydl_opts_base['cookiefile'] = cookies_path
+
+    # Try different impersonation targets as fallbacks if no cookies are present
+    targets = ['chrome-131:android-14', 'safari-18.0:ios-18.0', 'chrome-110:windows-10', 'chrome']
+    if cookies_path and os.path.exists(cookies_path):
+        targets = [None]  # Don't force impersonation if cookies are present unless it fails
+
+    info = None
+    last_err = None
+    for target in targets:
+        try:
+            ydl_opts = ydl_opts_base.copy()
+            if target and ImpersonateTarget:
+                ydl_opts['impersonate'] = ImpersonateTarget.from_str(target)
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = await asyncio.to_thread(ydl.extract_info, url, download=False)
+            if info:
+                break
+        except Exception as e:
+            last_err = e
+            logger.warning(f"Download_instagram_post extraction with target {target} failed: {e}")
+
+    if not info:
+        if last_err:
+            raise last_err
+        raise ValueError("Could not extract metadata from Instagram post.")
+
+    # Extract metadata
+    metadata = {
+        'uploader': info.get('uploader') or info.get('uploader_id') or 'unknown',
+        'caption': info.get('description') or info.get('title') or '',
+        'webpage_url': info.get('webpage_url') or url
+    }
+
+    items = []
+    entries = []
+    if info.get('_type') == 'playlist' or 'entries' in info:
+        entries = info.get('entries') or []
+    else:
+        entries = [info]
+
+    async with aiohttp.ClientSession() as session:
+        for idx, entry in enumerate(entries):
+            media_url = entry.get('url')
+            if not media_url and entry.get('formats'):
+                formats = entry.get('formats')
+                if formats:
+                    media_url = formats[-1].get('url')
+
+            if not media_url:
+                continue
+
+            ext = entry.get('ext') or ''
+            media_type = 'photo'
+            if ext in ['mp4', 'mkv', 'webm', 'mov'] or entry.get('vcodec') != 'none':
+                if entry.get('acodec') != 'none' or entry.get('vcodec') != 'none':
+                    media_type = 'video'
+
+            if 'mp4' in media_url or media_type == 'video':
+                media_type = 'video'
+                filename = f"ig_item_{idx}_{uuid.uuid4().hex}.mp4"
+            else:
+                media_type = 'photo'
+                filename = f"ig_item_{idx}_{uuid.uuid4().hex}.jpg"
+
+            try:
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                }
+                async with session.get(media_url, headers=headers, timeout=30) as resp:
+                    if resp.status == 200:
+                        with open(filename, 'wb') as f:
+                            f.write(await resp.read())
+                        items.append({
+                            'path': filename,
+                            'type': media_type
+                        })
+            except Exception as dl_err:
+                logger.error(f"Failed to download carousel item {idx}: {dl_err}")
+
+    return items, metadata
+
 async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_TYPE, url: str):
     chat_id = update.message.chat_id
-    status_msg = await update.message.reply_text("⏳ دارم ویدیو رو میکشم بیرون... وایسا...")
+    status_msg = await update.message.reply_text("⏳ دارم مدیا رو میکشم بیرون... وایسا...")
     
     filename = f"video_{uuid.uuid4().hex}.mp4"
     thumbnail_filename = f"thumb_{uuid.uuid4().hex}.jpg"
+    
+    # Cookies check
+    cookies_data_path = os.path.join(os.path.dirname(config.DB_FILE), "cookies.txt")
+    cookies_root_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "cookies.txt")
+    cookies_path = cookies_data_path if os.path.exists(cookies_data_path) else (cookies_root_path if os.path.exists(cookies_root_path) else None)
+
+    # If it's an Instagram link, try downloading it as a post/carousel first
+    if "instagram.com" in url:
+        try:
+            items, metadata = await download_instagram_post(url, cookies_path)
+            if items:
+                # Format caption
+                uploader = metadata.get('uploader', 'unknown')
+                caption = metadata.get('caption', '').strip()
+                webpage_url = metadata.get('webpage_url', url)
+                
+                # Limit caption length for Telegram (max 1024 chars for captions)
+                max_caption_len = 800
+                if len(caption) > max_caption_len:
+                    caption = caption[:max_caption_len] + "..."
+
+                formatted_caption = (
+                    f"📸 **پست اینستاگرام**\n\n"
+                    f"👤 **صفحه:** @{uploader}\n"
+                    f"📝 **کپشن:**\n{caption}\n\n"
+                    f"🔗 [مشاهده در اینستاگرام]({webpage_url})"
+                )
+
+                if len(items) == 1:
+                    # Single item send
+                    item = items[0]
+                    if item['type'] == 'photo':
+                        with open(item['path'], 'rb') as photo:
+                            await context.bot.send_photo(
+                                chat_id=chat_id,
+                                photo=photo,
+                                caption=formatted_caption,
+                                parse_mode="Markdown",
+                                reply_to_message_id=update.message.message_id
+                            )
+                    else:
+                        # Video: extract metadata & thumbnail
+                        path = item['path']
+                        metadata_vid = await asyncio.to_thread(get_video_metadata, path)
+                        duration = metadata_vid.get("duration")
+                        width = metadata_vid.get("width")
+                        height = metadata_vid.get("height")
+                        
+                        t_filename = f"thumb_{uuid.uuid4().hex}.jpg"
+                        has_thumb = await asyncio.to_thread(generate_video_thumbnail, path, t_filename)
+                        
+                        try:
+                            with open(path, 'rb') as video:
+                                thumb_file = open(t_filename, 'rb') if (has_thumb and os.path.exists(t_filename)) else None
+                                await context.bot.send_video(
+                                    chat_id=chat_id,
+                                    video=video,
+                                    duration=duration,
+                                    width=width,
+                                    height=height,
+                                    thumbnail=thumb_file,
+                                    supports_streaming=True,
+                                    caption=formatted_caption,
+                                    parse_mode="Markdown",
+                                    reply_to_message_id=update.message.message_id
+                                )
+                                if thumb_file:
+                                    thumb_file.close()
+                        finally:
+                            if os.path.exists(t_filename):
+                                os.remove(t_filename)
+                else:
+                    # Multi-item album
+                    media_group = []
+                    open_files = [] # Keep track to close them later
+                    
+                    for idx, item in enumerate(items):
+                        path = item['path']
+                        # Caption goes on the first item only
+                        item_caption = formatted_caption if idx == 0 else None
+                        item_parse_mode = "Markdown" if idx == 0 else None
+                        
+                        if item['type'] == 'photo':
+                            f = open(path, 'rb')
+                            open_files.append(f)
+                            media_group.append(InputMediaPhoto(
+                                media=f,
+                                caption=item_caption,
+                                parse_mode=item_parse_mode
+                            ))
+                        else:
+                            # Video
+                            metadata_vid = await asyncio.to_thread(get_video_metadata, path)
+                            duration = metadata_vid.get("duration")
+                            width = metadata_vid.get("width")
+                            height = metadata_vid.get("height")
+                            
+                            t_filename = f"thumb_{uuid.uuid4().hex}.jpg"
+                            has_thumb = await asyncio.to_thread(generate_video_thumbnail, path, t_filename)
+                            
+                            f = open(path, 'rb')
+                            open_files.append(f)
+                            
+                            thumb_f = None
+                            if has_thumb and os.path.exists(t_filename):
+                                thumb_f = open(t_filename, 'rb')
+                                open_files.append(thumb_f)
+                                
+                            media_group.append(InputMediaVideo(
+                                media=f,
+                                thumbnail=thumb_f,
+                                width=width,
+                                height=height,
+                                duration=duration,
+                                supports_streaming=True,
+                                caption=item_caption,
+                                parse_mode=item_parse_mode
+                            ))
+                            
+                    try:
+                        await context.bot.send_media_group(
+                            chat_id=chat_id,
+                            media=media_group,
+                            reply_to_message_id=update.message.message_id
+                        )
+                    finally:
+                        for f in open_files:
+                            try:
+                                f.close()
+                            except:
+                                pass
+                
+                # Cleanup downloaded files
+                for item in items:
+                    if os.path.exists(item['path']):
+                        os.remove(item['path'])
+                await status_msg.delete()
+                return
+        except Exception as ig_err:
+            logger.warning(f"Instagram dedicated downloader failed: {ig_err}. Falling back to standard loop.")
     
     async def try_send_video_file(path: str) -> bool:
         if not os.path.exists(path):
@@ -882,10 +1127,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Signal typing interface status
     await context.bot.send_chat_action(chat_id=chat_id, action="typing")
 
-    # Read active configurations from DB-synchronized memory cache
-    context_limit = int(config.runtime_config["CONTEXT_LIMIT"])
-    timeout_threshold = float(config.runtime_config["TIMEOUT"])
-    model_id = config.runtime_config["MODEL_ID"]
+    # Check if this chat has a custom model override
+    custom_model = chat_settings.get("custom_model")
+    model_id = custom_model if custom_model else config.runtime_config["MODEL_ID"]
     
     # Check if sender is a special user with a custom instruction
     special_instruction = None

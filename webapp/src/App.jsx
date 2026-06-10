@@ -42,6 +42,8 @@ function App() {
   const [customRoastChanceValue, setCustomRoastChanceValue] = useState(0.02);
   const [customCooldownValue, setCustomCooldownValue] = useState(60);
   const [savingSettings, setSavingSettings] = useState(false);
+  const [editOverrideModel, setEditOverrideModel] = useState(false);
+  const [customModelValue, setCustomModelValue] = useState('');
 
   // Model limits states
   const [modelLimits, setModelLimits] = useState(null);
@@ -84,6 +86,8 @@ function App() {
     setCustomRoastChanceValue(chat.custom_roast_chance !== null ? chat.custom_roast_chance : (config?.RANDOM_ROAST_CHANCE || 0.02));
     setEditOverrideCooldown(chat.custom_cooldown !== null);
     setCustomCooldownValue(chat.custom_cooldown !== null ? chat.custom_cooldown : 60);
+    setEditOverrideModel(chat.custom_model !== null && chat.custom_model !== undefined);
+    setCustomModelValue(chat.custom_model !== null && chat.custom_model !== undefined ? chat.custom_model : '');
     setAlertText('');
     setTopUsers([]);
     if (chat.type !== 'private') {
@@ -110,7 +114,8 @@ function App() {
         chat_id: selectedChat.chat_id,
         is_muted: editMuted ? 1 : 0,
         custom_roast_chance: editOverrideRoast ? parseFloat(customRoastChanceValue) : null,
-        custom_cooldown: editOverrideCooldown ? parseInt(customCooldownValue) : null
+        custom_cooldown: editOverrideCooldown ? parseInt(customCooldownValue) : null,
+        custom_model: editOverrideModel ? customModelValue : null
       });
       showToast("Chat settings saved successfully!");
       fetchData(); // Refresh list to get updated setting values
@@ -120,7 +125,8 @@ function App() {
         ...prev,
         is_muted: editMuted ? 1 : 0,
         custom_roast_chance: editOverrideRoast ? parseFloat(customRoastChanceValue) : null,
-        custom_cooldown: editOverrideCooldown ? parseInt(customCooldownValue) : null
+        custom_cooldown: editOverrideCooldown ? parseInt(customCooldownValue) : null,
+        custom_model: editOverrideModel ? customModelValue : null
       }));
     } catch (e) {
       const reason = e.response?.data?.reason || "Failed to save settings.";
@@ -541,6 +547,7 @@ function App() {
                                   {chat.type === 'private' ? 'DM' : chat.type}
                                 </span>
                                 {chat.is_muted === 1 && <span className="badge badge-muted">Muted</span>}
+                                {chat.custom_model && <span className="badge" style={{background: '#8b5cf6', color: '#fff', fontSize: '10px'}}>{chat.custom_model}</span>}
                               </div>
                               <div className="chat-meta">
                                 <span>ID: {chat.chat_id}</span>
@@ -1079,6 +1086,38 @@ function App() {
                       placeholder="e.g. 60" 
                       value={customCooldownValue} 
                       onChange={(e) => setCustomCooldownValue(e.target.value)} 
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Model Override */}
+              <div style={{marginBottom: 20}}>
+                <div className="flex-row-between">
+                  <div>
+                    <span style={{fontWeight: 600, fontSize: 13}}>Override Model ID</span>
+                    <p style={{fontSize: 11, color: 'var(--tg-theme-hint-color)'}}>
+                      Set a custom Gemini model for this specific chat.
+                    </p>
+                  </div>
+                  <label className="toggle-switch">
+                    <input 
+                      type="checkbox" 
+                      checked={editOverrideModel} 
+                      onChange={(e) => setEditOverrideModel(e.target.checked)}
+                    />
+                    <span className="toggle-slider"></span>
+                  </label>
+                </div>
+                {editOverrideModel && (
+                  <div style={{marginTop: 10}}>
+                    <label style={{fontSize: 11, color: 'var(--tg-theme-hint-color)', display: 'block', marginBottom: 4}}>Model ID / Name:</label>
+                    <input 
+                      type="text" 
+                      className="input" 
+                      placeholder="e.g. gemini-2.5-flash-lite" 
+                      value={customModelValue} 
+                      onChange={(e) => setCustomModelValue(e.target.value)} 
                     />
                   </div>
                 )}
