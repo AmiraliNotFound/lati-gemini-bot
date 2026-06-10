@@ -5,11 +5,17 @@ import re
 import os
 import uuid
 import traceback
+import subprocess
 
 try:
     import yt_dlp
 except ImportError:
     yt_dlp = None
+
+try:
+    from gtts import gTTS
+except ImportError:
+    gTTS = None
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import ContextTypes
@@ -20,6 +26,50 @@ from src import config
 from src import database
 
 logger = logging.getLogger(__name__)
+
+# Global rate limiting dictionary. Format: {(chat_id, user_id): [timestamps]}
+_user_cooldowns = {}
+COOLDOWN_WINDOW = 60 # seconds
+MAX_REQUESTS_IN_WINDOW = 4
+
+def generate_tts_sync(text: str, filepath: str):
+    if not gTTS:
+        raise ImportError("gTTS package is not installed")
+    tts = gTTS(text=text, lang='fa')
+    tts.save(filepath)
+
+def convert_mp3_to_ogg(mp3_path: str, ogg_path: str):
+    subprocess.run(
+        ["ffmpeg", "-y", "-i", mp3_path, "-acodec", "libopus", ogg_path],
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL
+    )
+
+async def generate_voice_reply(text: str) -> str:
+    """
+    Generates a Persian TTS voice reply and converts it to OGG format.
+    Returns the file path of the OGG file, or None if it fails.
+    """
+    if not gTTS:
+        logger.warning("gTTS not installed, skipping voice generation.")
+        return None
+    mp3_filename = f"tts_{uuid.uuid4().hex}.mp3"
+    ogg_filename = f"tts_{uuid.uuid4().hex}.ogg"
+    try:
+        await asyncio.to_thread(generate_tts_sync, text, mp3_filename)
+        await asyncio.to_thread(convert_mp3_to_ogg, mp3_filename, ogg_filename)
+        return ogg_filename
+    except Exception as e:
+        logger.error(f"Failed to generate TTS voice reply: {e}")
+        return None
+    finally:
+        if os.path.exists(mp3_filename):
+            try:
+                os.remove(mp3_filename)
+            except Exception as cleanup_err:
+                logger.error(f"Failed to delete temp tts mp3: {cleanup_err}")
+
 
 # Initialize Google GenAI client lazily to bind correctly to the running event loop
 _ai_client = None
@@ -368,39 +418,42 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
     
     filename = f"video_{uuid.uuid4().hex}.mp4"
     try:
-        await asyncio.to_thread(sync_download_video, url, filename)
-        if os.path.exists(filename):
-            with open(filename, 'rb') as video:
-                await context.bot.send_video(chat_id=chat_id, video=video, reply_to_message_id=update.message.message_id)
-            os.remove(filename)
-            await status_msg.delete()
-        else:
-            await status_msg.edit_text("❌ نتونستم دانلودش کنم، شاید حجمش زیاده یا پرایوته.")
-    except ImportError:
-        await status_msg.edit_text("❌ قابلیت دانلود فعال نیست! ادمین باید ربات رو دوباره Build کنه.")
-    except Exception as e:
-        error_msg = str(e)
-        stack = traceback.format_exc()
-        logger.error(f"yt-dlp error: {e}")
-        await database.log_error(config.DB_FILE, "YT_DLP_ERROR", error_msg, stack)
-        
-        # Try Cobalt API fallback
-        success = await cobalt_fallback_download(url, filename)
-        if success and os.path.exists(filename):
-            with open(filename, 'rb') as video:
-                await context.bot.send_video(chat_id=chat_id, video=video, reply_to_message_id=update.message.message_id)
-            os.remove(filename)
-            await status_msg.delete()
-            return
-
-        # If everything fails, Instagram is completely blocking the IP without cookies.
-        if "instagram.com" in url:
-            await status_msg.edit_text("❌ اینستاگرام گیر داده! ادمین باید کوکی ست کنه.")
-        else:
-            await status_msg.edit_text("❌ نتونستم دانلودش کنم، یوتوب/اینستا گیر داده.")
+        try:
+            await asyncio.to_thread(sync_download_video, url, filename)
+            if os.path.exists(filename):
+                with open(filename, 'rb') as video:
+                    await context.bot.send_video(chat_id=chat_id, video=video, reply_to_message_id=update.message.message_id)
+                await status_msg.delete()
+                return
+            else:
+                await status_msg.edit_text("❌ نتونستم دانلودش کنم، شاید حجمش زیاده یا پرایوته.")
+        except ImportError:
+            await status_msg.edit_text("❌ قابلیت دانلود فعال نیست! ادمین باید ربات رو دوباره Build کنه.")
+        except Exception as e:
+            error_msg = str(e)
+            stack = traceback.format_exc()
+            logger.error(f"yt-dlp error: {e}")
+            await database.log_error(config.DB_FILE, "YT_DLP_ERROR", error_msg, stack)
             
+            # Try Cobalt API fallback
+            success = await cobalt_fallback_download(url, filename)
+            if success and os.path.exists(filename):
+                with open(filename, 'rb') as video:
+                    await context.bot.send_video(chat_id=chat_id, video=video, reply_to_message_id=update.message.message_id)
+                await status_msg.delete()
+                return
+    
+            # If everything fails, Instagram is completely blocking the IP without cookies.
+            if "instagram.com" in url:
+                await status_msg.edit_text("❌ اینستاگرام گیر داده! ادمین باید کوکی ست کنه.")
+            else:
+                await status_msg.edit_text("❌ نتونستم دانلودش کنم، یوتوب/اینستا گیر داده.")
+    finally:
         if os.path.exists(filename):
-            os.remove(filename)
+            try:
+                os.remove(filename)
+            except Exception as cleanup_err:
+                logger.error(f"Failed to delete temp video file {filename}: {cleanup_err}")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Processes message history pipelines, handles text/media targets, and fires requests to GenAI."""
@@ -465,6 +518,29 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             triggered_randomly = True
         else:
             return
+
+    # 2.5 Rate Limiting Check (Admins are exempt)
+    is_admin = sender_username and sender_username.lower() in config.ALLOWED_ADMINS
+    if not is_admin:
+        now = asyncio.get_event_loop().time()
+        cooldown_key = (chat_id, user_id)
+        if cooldown_key not in _user_cooldowns:
+            _user_cooldowns[cooldown_key] = []
+        
+        # Prune old timestamps
+        _user_cooldowns[cooldown_key] = [t for t in _user_cooldowns[cooldown_key] if now - t < COOLDOWN_WINDOW]
+        
+        if len(_user_cooldowns[cooldown_key]) >= MAX_REQUESTS_IN_WINDOW:
+            cooldown_responses = [
+                "چته رگباری پیام می‌فرستی؟ سر آوردی؟ یه دقیقه خفه شو بتونم نفس بکشم 🗿",
+                "نفس بکش بچه! تند تند ننویس کیبورد گوشیت داغ کرد. چند لحظه دیگه بنال 🥱",
+                "اسپم نکن دیگه ضایع! دو دقیقه بشین سر جات بعداً بیا فک بزن 🤫",
+                "آروم باش چه خبرته؟ منم یه حدی دارم، یه دقیقه دندون رو جگر بذار 🚶‍♂️"
+            ]
+            await update.message.reply_text(random.choice(cooldown_responses))
+            return
+            
+        _user_cooldowns[cooldown_key].append(now)
 
     # Signal typing interface status
     await context.bot.send_chat_action(chat_id=chat_id, action="typing")
@@ -557,7 +633,29 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         bot_response = re.sub(r"^Bot\s*\([^)]+\):\s*", "", bot_response).strip()
         
         # 6. Reply and log to DB
-        await update.message.reply_text(bot_response)
+        is_voice_request = bool(update.message.voice)
+        sent_voice = False
+        
+        if is_voice_request:
+            await context.bot.send_chat_action(chat_id=chat_id, action="record_voice")
+            voice_file = await generate_voice_reply(bot_response)
+            if voice_file and os.path.exists(voice_file):
+                try:
+                    with open(voice_file, 'rb') as vf:
+                        await update.message.reply_voice(voice=vf)
+                    sent_voice = True
+                except Exception as voice_send_err:
+                    logger.error(f"Failed to send voice reply: {voice_send_err}")
+                finally:
+                    if os.path.exists(voice_file):
+                        try:
+                            os.remove(voice_file)
+                        except:
+                            pass
+                            
+        if not sent_voice:
+            await update.message.reply_text(bot_response)
+            
         await database.store_message(db_path=config.DB_FILE, chat_id=chat_id, role="model", sender_name=bot_username or "Bot", text=bot_response)
 
     except asyncio.TimeoutError:
@@ -569,4 +667,3 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Execution handling failure: {e}")
         await database.log_error(config.DB_FILE, "GENAI_ERROR", error_msg, stack)
         await update.message.reply_text(f"سیستم ریپ زد {sender_name}، یه بار دیگه بگو 🚶‍♂️")
-

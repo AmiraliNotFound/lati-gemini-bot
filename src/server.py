@@ -1,17 +1,102 @@
 import logging
 import json
 import os
+import hmac
+import hashlib
+import time
+import asyncio
+from urllib.parse import parse_qsl
 from aiohttp import web
+import aiohttp_cors
 from src import database, config
 
 logger = logging.getLogger(__name__)
 
+def validate_telegram_webapp_data(token: str, init_data: str) -> bool:
+    if not init_data:
+        return False
+    try:
+        parsed_data = dict(parse_qsl(init_data))
+        if "hash" not in parsed_data:
+            return False
+        received_hash = parsed_data.pop("hash")
+        
+        # Sort and construct data-check-string
+        data_check_string = "\n".join(f"{k}={v}" for k, v in sorted(parsed_data.items()))
+        
+        # Calculate secret key: HMAC-SHA256 of token with key "WebAppData"
+        secret_key = hmac.new(b"WebAppData", token.encode(), hashlib.sha256).digest()
+        
+        # Calculate validation hash: HMAC-SHA256 of data-check-string with secret_key
+        validation_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
+        
+        # Verify hash matches
+        if not hmac.compare_digest(validation_hash, received_hash):
+            return False
+            
+        # Check authentication age (max 24 hours to prevent replay attacks)
+        auth_date = int(parsed_data.get("auth_date", 0))
+        if time.time() - auth_date > 86400: # 24 hours
+            logger.warning("Telegram WebApp authentication expired")
+            return False
+            
+        return True
+    except Exception as e:
+        logger.error(f"Error validating WebApp data: {e}")
+        return False
+
 def check_auth(request):
     """
-    Security is expected to be handled by Cloudflare Zero Trust/Tunnels,
-    since the API and frontend will be served behind a secure proxy.
+    Validates the Telegram WebApp initData HMAC signature and verifies
+    that the requesting user is in the ALLOWED_ADMINS list.
     """
-    pass
+    if os.getenv("DEV_BYPASS") == "true":
+        return
+
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        raise web.HTTPUnauthorized(
+            text=json.dumps({"status": "error", "reason": "Missing or invalid Authorization header"}),
+            content_type="application/json"
+        )
+        
+    init_data = auth_header.split(" ", 1)[1]
+    if not init_data:
+        raise web.HTTPUnauthorized(
+            text=json.dumps({"status": "error", "reason": "Authentication token is empty"}),
+            content_type="application/json"
+        )
+
+    if not validate_telegram_webapp_data(config.TELEGRAM_TOKEN, init_data):
+        raise web.HTTPUnauthorized(
+            text=json.dumps({"status": "error", "reason": "Invalid authentication signature"}),
+            content_type="application/json"
+        )
+        
+    # Verify user is an authorized admin
+    try:
+        parsed_data = dict(parse_qsl(init_data))
+        user_str = parsed_data.get("user")
+        if not user_str:
+            raise web.HTTPForbidden(
+                text=json.dumps({"status": "error", "reason": "User data missing from authentication details"}),
+                content_type="application/json"
+            )
+            
+        user_data = json.loads(user_str)
+        username = user_data.get("username")
+        
+        if not username or username.lower() not in config.ALLOWED_ADMINS:
+            raise web.HTTPForbidden(
+                text=json.dumps({"status": "error", "reason": f"Access denied: User @{username} is not an authorized administrator"}),
+                content_type="application/json"
+            )
+    except Exception as e:
+        logger.error(f"Failed to check admin permissions: {e}")
+        raise web.HTTPForbidden(
+            text=json.dumps({"status": "error", "reason": f"Permission verification failed: {e}"}),
+            content_type="application/json"
+        )
 
 async def get_stats(request):
     check_auth(request)
@@ -93,8 +178,6 @@ async def broadcast_msg(request):
         return web.json_response({"status": "error", "reason": "No bot app or message text"})
         
     chats = await database.get_all_chat_ids(config.DB_FILE)
-    success = 0
-    import asyncio
     
     async def send(chat_id):
         try:
@@ -109,6 +192,51 @@ async def broadcast_msg(request):
     
     return web.json_response({"status": "success", "sent": success, "total": len(chats)})
 
+async def upload_cookies(request):
+    check_auth(request)
+    try:
+        data = await request.json()
+        cookies_text = data.get("cookies", "")
+        if not cookies_text:
+            return web.json_response({"status": "error", "reason": "No cookies text provided"}, status=400)
+            
+        cookies_path = os.path.join(os.path.dirname(config.DB_FILE), "cookies.txt")
+        root_cookies_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "cookies.txt")
+        
+        with open(cookies_path, "w", encoding="utf-8") as f:
+            f.write(cookies_text)
+        try:
+            with open(root_cookies_path, "w", encoding="utf-8") as f:
+                f.write(cookies_text)
+        except:
+            pass
+            
+        logger.info("New cookies.txt file successfully uploaded and synced.")
+        return web.json_response({"status": "success"})
+    except Exception as e:
+        logger.error(f"Failed to save uploaded cookies: {e}")
+        return web.json_response({"status": "error", "reason": str(e)}, status=500)
+
+async def update_ytdlp(request):
+    check_auth(request)
+    try:
+        process = await asyncio.create_subprocess_exec(
+            "pip", "install", "--upgrade", "yt-dlp",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await process.communicate()
+        if process.returncode == 0:
+            logger.info("yt-dlp updated successfully.")
+            return web.json_response({"status": "success", "output": stdout.decode()})
+        else:
+            reason = stderr.decode() or "Unknown process error"
+            logger.error(f"Failed to update yt-dlp: {reason}")
+            return web.json_response({"status": "error", "reason": reason}, status=500)
+    except Exception as e:
+        logger.error(f"Failed to update yt-dlp via subprocess: {e}")
+        return web.json_response({"status": "error", "reason": str(e)}, status=500)
+
 async def index_handler(request):
     frontend_dir = os.path.join(os.path.dirname(__file__), "..", "webapp", "dist")
     index_file = os.path.join(frontend_dir, 'index.html')
@@ -120,10 +248,10 @@ async def setup_server(bot_app):
     app = web.Application()
     app["bot_app"] = bot_app
     
-    # CORS handling for local dev
-    import aiohttp_cors
+    # CORS origin lock: lock to WebApp URL domain if configured
+    cors_origin = config.WEBAPP_URL if config.WEBAPP_URL else "*"
     cors = aiohttp_cors.setup(app, defaults={
-        "*": aiohttp_cors.ResourceOptions(
+        cors_origin: aiohttp_cors.ResourceOptions(
             allow_credentials=True,
             expose_headers="*",
             allow_headers="*",
@@ -143,6 +271,10 @@ async def setup_server(bot_app):
     cors.add(app.router.add_post('/api/specials', add_special))
     cors.add(app.router.add_post('/api/specials/delete', remove_special))
     cors.add(app.router.add_post('/api/broadcast', broadcast_msg))
+    
+    # New management routes
+    cors.add(app.router.add_post('/api/upload_cookies', upload_cookies))
+    cors.add(app.router.add_post('/api/update_ytdlp', update_ytdlp))
 
     # Serve static frontend files and SPA root
     app.router.add_get('/', index_handler)

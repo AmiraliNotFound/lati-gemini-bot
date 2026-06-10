@@ -1,9 +1,51 @@
 import os
 import aiosqlite
 import logging
+from cryptography.fernet import Fernet
 from src.config import runtime_config, DEFAULT_CONFIG
 
 logger = logging.getLogger(__name__)
+
+_cipher = None
+def get_cipher():
+    global _cipher
+    if _cipher is None:
+        from src import config
+        key = config.ENCRYPTION_KEY
+        if key:
+            try:
+                _cipher = Fernet(key.encode())
+            except Exception as e:
+                logger.error(f"Failed to initialize Fernet cipher: {e}")
+    return _cipher
+
+def encrypt_text(text: str) -> str:
+    if not text:
+        return text
+    cipher = get_cipher()
+    if not cipher:
+        return text
+    try:
+        encrypted = cipher.encrypt(text.encode("utf-8")).decode("utf-8")
+        return f"enc:{encrypted}"
+    except Exception as e:
+        logger.error(f"Encryption failed: {e}")
+        return text
+
+def decrypt_text(cipher_text: str) -> str:
+    if not cipher_text or not cipher_text.startswith("enc:"):
+        return cipher_text
+    cipher = get_cipher()
+    if not cipher:
+        return cipher_text
+    try:
+        encrypted_part = cipher_text[4:]
+        decrypted = cipher.decrypt(encrypted_part.encode("utf-8")).decode("utf-8")
+        return decrypted
+    except Exception as e:
+        logger.error(f"Decryption failed: {e}")
+        return cipher_text
+
 
 async def init_db(db_path: str):
     """Initializes schema and synchronizes live dynamic configuration values."""
@@ -75,10 +117,11 @@ async def init_db(db_path: str):
 
 async def store_message(db_path: str, chat_id: int, role: str, sender_name: str, text: str):
     """Logs an incoming or outgoing message and prunes history past the threshold."""
+    encrypted_text = encrypt_text(text)
     async with aiosqlite.connect(db_path) as db:
         await db.execute(
             "INSERT INTO messages (chat_id, role, sender_name, text) VALUES (?, ?, ?, ?)",
-            (chat_id, role, sender_name, text)
+            (chat_id, role, sender_name, encrypted_text)
         )
         # Keep up to 200 messages in db for /tldr summarization
         await db.execute('''
@@ -98,7 +141,11 @@ async def get_chat_history(db_path: str, chat_id: int, limit: int) -> list:
         ) as cursor:
             rows = await cursor.fetchall()
             rows.reverse()
-            return rows
+            decrypted_rows = []
+            for role, name, val in rows:
+                decrypted_rows.append((role, name, decrypt_text(val)))
+            return decrypted_rows
+
 
 async def save_config_key(db_path: str, key: str, value: str):
     """Updates runtime configuration cache and persists it to database."""

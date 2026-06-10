@@ -11,6 +11,29 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 DB_FILE = os.getenv("DB_FILE", "chat_history.db")
 WEBAPP_URL = os.getenv("WEBAPP_URL", "")
 
+# Database Encryption Key (AES-256 Fernet)
+ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY")
+if not ENCRYPTION_KEY:
+    try:
+        from cryptography.fernet import Fernet
+        ENCRYPTION_KEY = Fernet.generate_key().decode()
+        env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env")
+        if os.path.exists(env_path):
+            with open(env_path, "a", encoding="utf-8") as f:
+                f.write(f"\n# Database Encryption Key\nENCRYPTION_KEY={ENCRYPTION_KEY}\n")
+            logging.getLogger(__name__).info("Generated new database ENCRYPTION_KEY and saved to .env")
+        else:
+            # Fallback to local file if .env is missing (e.g. inside Docker without bind mount env)
+            with open(os.path.join(os.path.dirname(DB_FILE) or ".", "encryption_key.key"), "w") as f:
+                f.write(ENCRYPTION_KEY)
+            logging.getLogger(__name__).warning("Saved generated ENCRYPTION_KEY to separate key file since .env is missing.")
+    except Exception as e:
+        logging.getLogger(__name__).error(f"Could not generate/save ENCRYPTION_KEY: {e}")
+        # Use a stable dummy key as last-resort fallback to prevent boot crashes
+        import base64
+        import hashlib
+        ENCRYPTION_KEY = base64.urlsafe_b64encode(hashlib.sha256(b"fallback_key").digest()).decode()
+
 # Parse comma-separated list of allowed admins (case-insensitive)
 allowed_admins_env = os.getenv("ALLOWED_ADMINS", "AmiraliNotFound")
 ALLOWED_ADMINS = [username.strip().lower() for username in allowed_admins_env.split(",") if username.strip()]

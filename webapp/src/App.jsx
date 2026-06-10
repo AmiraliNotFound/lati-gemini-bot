@@ -1,10 +1,14 @@
 import { useState, useEffect } from 'react';
 import WebApp from '@twa-dev/sdk';
-import { Activity, ShieldAlert, Settings, RefreshCcw, Users, Megaphone } from 'lucide-react';
+import { Activity, ShieldAlert, Settings, RefreshCcw, Users, Megaphone, Upload, RefreshCw } from 'lucide-react';
 import axios from 'axios';
 import './index.css';
 
 const API_BASE = import.meta.env.DEV ? 'http://localhost:8080/api' : '/api';
+
+// Automatically inject Telegram WebApp authentication data on all API calls
+const initData = window.Telegram?.WebApp?.initData || "";
+axios.defaults.headers.common['Authorization'] = `Bearer ${initData}`;
 
 function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -22,6 +26,8 @@ function App() {
   // UI state
   const [toast, setToast] = useState(null);
   const [confirmDialog, setConfirmDialog] = useState(null);
+  const [updatingScraper, setUpdatingScraper] = useState(false);
+  const [uploadingCookies, setUploadingCookies] = useState(false);
 
   useEffect(() => {
     try {
@@ -150,6 +156,41 @@ function App() {
         showToast("Broadcast failed.");
       }
     }
+  };
+
+  const handleCookieUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setUploadingCookies(true);
+    showToast("Processing cookies file...");
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const text = event.target.result;
+      try {
+        await axios.post(`${API_BASE}/upload_cookies`, { cookies: text });
+        showToast("cookies.txt updated successfully!");
+      } catch (err) {
+        showToast("Failed to upload cookies.");
+      }
+      setUploadingCookies(false);
+    };
+    reader.readAsText(file);
+  };
+
+  const handleUpdateScraper = async () => {
+    setUpdatingScraper(true);
+    showToast("Updating yt-dlp scraper... Please wait...");
+    try {
+      const res = await axios.post(`${API_BASE}/update_ytdlp`);
+      if (res.data.status === 'success') {
+        showToast("yt-dlp updated successfully!");
+      } else {
+        showToast("Update failed: " + res.data.reason);
+      }
+    } catch (err) {
+      showToast("Failed to invoke scraper updater.");
+    }
+    setUpdatingScraper(false);
   };
 
   const tabsList = ['dashboard', 'moderation', 'specials', 'broadcast', 'settings'];
@@ -330,38 +371,93 @@ function App() {
           )}
 
           {activeTab === 'settings' && config && (
-            <div className="card">
-              <h2><Settings size={18}/> System Configuration</h2>
-              
-              <div className="input-group">
-                <label>Model ID</label>
-                <input type="text" className="input" value={config.MODEL_ID || ''} onChange={e => setConfig({...config, MODEL_ID: e.target.value})} />
+            <>
+              <div className="card">
+                <h2><Settings size={18}/> System Configuration</h2>
+                
+                <div className="input-group">
+                  <label>Model ID</label>
+                  <input type="text" className="input" value={config.MODEL_ID || ''} onChange={e => setConfig({...config, MODEL_ID: e.target.value})} />
+                </div>
+
+                <div className="input-group">
+                  <label>Context Limit</label>
+                  <input type="number" className="input" value={config.CONTEXT_LIMIT || ''} onChange={e => setConfig({...config, CONTEXT_LIMIT: e.target.value})} />
+                </div>
+
+                <div className="input-group">
+                  <label>Timeout (seconds)</label>
+                  <input type="number" className="input" value={config.TIMEOUT || ''} onChange={e => setConfig({...config, TIMEOUT: e.target.value})} />
+                </div>
+
+                <div className="input-group">
+                  <label>Random Roast Chance: {config.RANDOM_ROAST_CHANCE}</label>
+                  <input type="range" min="0" max="1" step="0.01" className="range-slider" value={config.RANDOM_ROAST_CHANCE || 0} onChange={e => setConfig({...config, RANDOM_ROAST_CHANCE: e.target.value})} />
+                </div>
+
+                <div className="input-group">
+                  <label>System Persona Prompt</label>
+                  <textarea rows="6" className="input" value={config.SYSTEM_INSTRUCTION || ''} onChange={e => setConfig({...config, SYSTEM_INSTRUCTION: e.target.value})} />
+                </div>
+
+                <button className="btn" style={{width: '100%', justifyContent: 'center'}} onClick={saveConfig}>
+                  Save Configuration
+                </button>
               </div>
 
-              <div className="input-group">
-                <label>Context Limit</label>
-                <input type="number" className="input" value={config.CONTEXT_LIMIT || ''} onChange={e => setConfig({...config, CONTEXT_LIMIT: e.target.value})} />
-              </div>
+              {/* Advanced VPS Controls */}
+              <div className="card">
+                <h2><Settings size={18}/> Advanced VPS Tools</h2>
+                
+                {/* Cookies File Uploader */}
+                <div className="input-group" style={{marginBottom: 20}}>
+                  <label>Rotate Scraper Cookies (cookies.txt)</label>
+                  <div style={{
+                    border: '2px dashed var(--border-color)',
+                    borderRadius: 12,
+                    padding: 20,
+                    textAlign: 'center',
+                    background: 'rgba(255,255,255,0.01)',
+                    position: 'relative',
+                    cursor: 'pointer'
+                  }}>
+                    <input 
+                      type="file" 
+                      accept=".txt" 
+                      onChange={handleCookieUpload} 
+                      style={{
+                        position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer'
+                      }} 
+                    />
+                    <Upload size={24} style={{margin: '0 auto 10px', color: 'var(--tg-theme-hint-color)'}} />
+                    {uploadingCookies ? (
+                      <span style={{color: 'var(--tg-theme-hint-color)'}}>Saving cookies...</span>
+                    ) : (
+                      <span style={{color: 'var(--tg-theme-hint-color)'}}>
+                        Drag & Drop or Click to upload new <strong>cookies.txt</strong>
+                      </span>
+                    )}
+                  </div>
+                </div>
 
-              <div className="input-group">
-                <label>Timeout (seconds)</label>
-                <input type="number" className="input" value={config.TIMEOUT || ''} onChange={e => setConfig({...config, TIMEOUT: e.target.value})} />
+                {/* Scraper Dependency Updater */}
+                <div className="input-group">
+                  <label>Update yt-dlp Video Downloader</label>
+                  <p style={{fontSize: 12, color: 'var(--tg-theme-hint-color)', marginBottom: 8}}>
+                    If Instagram or YouTube downloads start failing, update the package dynamically.
+                  </p>
+                  <button 
+                    className="btn" 
+                    onClick={handleUpdateScraper} 
+                    disabled={updatingScraper}
+                    style={{width: '100%', justifyContent: 'center', gap: 8}}
+                  >
+                    <RefreshCw size={16} className={updatingScraper ? 'spinning' : ''} />
+                    {updatingScraper ? 'Updating...' : 'Update yt-dlp Scraper'}
+                  </button>
+                </div>
               </div>
-
-              <div className="input-group">
-                <label>Random Roast Chance: {config.RANDOM_ROAST_CHANCE}</label>
-                <input type="range" min="0" max="1" step="0.01" className="range-slider" value={config.RANDOM_ROAST_CHANCE || 0} onChange={e => setConfig({...config, RANDOM_ROAST_CHANCE: e.target.value})} />
-              </div>
-
-              <div className="input-group">
-                <label>System Persona Prompt</label>
-                <textarea rows="6" className="input" value={config.SYSTEM_INSTRUCTION || ''} onChange={e => setConfig({...config, SYSTEM_INSTRUCTION: e.target.value})} />
-              </div>
-
-              <button className="btn" style={{width: '100%', justifyContent: 'center'}} onClick={saveConfig}>
-                Save Configuration
-              </button>
-            </div>
+            </>
           )}
         </>
       )}
