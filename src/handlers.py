@@ -6,6 +6,7 @@ import os
 import uuid
 import traceback
 import subprocess
+import html
 
 try:
     import yt_dlp
@@ -13,6 +14,35 @@ try:
 except ImportError:
     yt_dlp = None
     ImpersonateTarget = None
+
+def format_media_caption(caption_text: str, webpage_url: str, platform: str, media_type: str = "video") -> str:
+    """
+    Formats the media caption in HTML format.
+    The description is wrapped in a <blockquote> tag.
+    The link is implicit inside a text string.
+    """
+    escaped_caption = html.escape(caption_text.strip()) if caption_text else ""
+    
+    # Determine the link text based on platform and type
+    if "youtube" in platform.lower():
+        link_text = "link to the YouTube post"
+    elif "instagram" in platform.lower():
+        if media_type == "photo":
+            link_text = "link to the image"
+        else:
+            link_text = "link to the Instagram post"
+    else:
+        if media_type == "photo":
+            link_text = "link to the image"
+        else:
+            link_text = "link to the video"
+            
+    link_html = f'<a href="{webpage_url}">{link_text}</a>'
+    
+    if escaped_caption:
+        return f"<blockquote>{escaped_caption}</blockquote>\n\n{link_html}"
+    else:
+        return link_html
 
 try:
     import edge_tts
@@ -1005,11 +1035,8 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
                 if len(caption) > max_caption_len:
                     caption = caption[:max_caption_len] + "..."
 
-                if caption:
-                    quoted_caption = "\n".join(f">{line}" for line in caption.splitlines())
-                    formatted_caption = f"{quoted_caption}\n\n🔗 {webpage_url}"
-                else:
-                    formatted_caption = f"🔗 {webpage_url}"
+                single_media_type = items[0]['type'] if len(items) == 1 else "video"
+                formatted_caption = format_media_caption(caption, webpage_url, "instagram", single_media_type)
 
                 if len(items) == 1:
                     # Single item send
@@ -1020,7 +1047,7 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
                                 chat_id=chat_id,
                                 photo=photo,
                                 caption=formatted_caption,
-                                parse_mode="Markdown",
+                                parse_mode="HTML",
                                 reply_to_message_id=update.message.message_id
                             )
                     else:
@@ -1046,7 +1073,7 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
                                     thumbnail=thumb_file,
                                     supports_streaming=True,
                                     caption=formatted_caption,
-                                    parse_mode="Markdown",
+                                    parse_mode="HTML",
                                     reply_to_message_id=update.message.message_id
                                 )
                                 if thumb_file:
@@ -1063,7 +1090,7 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
                         path = item['path']
                         # Caption goes on the first item only
                         item_caption = formatted_caption if idx == 0 else None
-                        item_parse_mode = "Markdown" if idx == 0 else None
+                        item_parse_mode = "HTML" if idx == 0 else None
                         
                         if item['type'] == 'photo':
                             f = open(path, 'rb')
@@ -1160,7 +1187,7 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
                     thumbnail=thumb_file,
                     supports_streaming=True,
                     caption=caption,
-                    parse_mode="Markdown",
+                    parse_mode="HTML",
                     reply_to_message_id=update.message.message_id
                 )
                 if thumb_file:
@@ -1181,11 +1208,8 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
                 if file_size <= 50 * 1024 * 1024:
                     title = video_metadata.get('title', '') if video_metadata else ''
                     webpage_url = video_metadata.get('url', url) if video_metadata else url
-                    if title:
-                        quoted_title = "\n".join(f">{line}" for line in title.splitlines())
-                        yt_caption = f"{quoted_title}\n\n🔗 {webpage_url}"
-                    else:
-                        yt_caption = f"🔗 {webpage_url}"
+                    platform = "youtube" if "youtube.com" in webpage_url or "youtu.be" in webpage_url else "other"
+                    yt_caption = format_media_caption(title, webpage_url, platform, "video")
                     await try_send_video_file(filename, caption=yt_caption)
                     await status_msg.delete()
                     return
@@ -1209,7 +1233,8 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
                 file_size = os.path.getsize(filename)
                 if file_size <= 50 * 1024 * 1024:
                     try:
-                        await try_send_video_file(filename, caption=f"🔗 {url}")
+                        cobalt_caption = format_media_caption("", url, "other", "video")
+                        await try_send_video_file(filename, caption=cobalt_caption)
                         await status_msg.delete()
                         return
                     except Exception:
