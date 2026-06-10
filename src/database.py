@@ -441,7 +441,7 @@ async def get_model_usage_stats(db_path: str) -> dict:
         # Text RPM (requests & errors)
         try:
             async with db.execute(
-                "SELECT COUNT(*) FROM api_requests_log WHERE request_type = 'text' AND status = 'success' AND timestamp >= datetime('now', '-1 minute')"
+                "SELECT COUNT(*) FROM api_requests_log WHERE request_type = 'text' AND timestamp >= datetime('now', '-1 minute')"
             ) as cursor:
                 stats["text"]["last_minute"]["requests"] = (await cursor.fetchone())[0]
             async with db.execute(
@@ -451,7 +451,7 @@ async def get_model_usage_stats(db_path: str) -> dict:
 
             # Text RPD (requests & errors)
             async with db.execute(
-                "SELECT COUNT(*) FROM api_requests_log WHERE request_type = 'text' AND status = 'success' AND timestamp >= datetime('now', '-24 hours')"
+                "SELECT COUNT(*) FROM api_requests_log WHERE request_type = 'text' AND timestamp >= datetime('now', '-24 hours')"
             ) as cursor:
                 stats["text"]["last_24_hours"]["requests"] = (await cursor.fetchone())[0]
             async with db.execute(
@@ -461,7 +461,7 @@ async def get_model_usage_stats(db_path: str) -> dict:
 
             # TTS RPM (requests & errors)
             async with db.execute(
-                "SELECT COUNT(*) FROM api_requests_log WHERE request_type = 'tts' AND status = 'success' AND timestamp >= datetime('now', '-1 minute')"
+                "SELECT COUNT(*) FROM api_requests_log WHERE request_type = 'tts' AND timestamp >= datetime('now', '-1 minute')"
             ) as cursor:
                 stats["tts"]["last_minute"]["requests"] = (await cursor.fetchone())[0]
             async with db.execute(
@@ -471,7 +471,7 @@ async def get_model_usage_stats(db_path: str) -> dict:
 
             # TTS RPD (requests & errors)
             async with db.execute(
-                "SELECT COUNT(*) FROM api_requests_log WHERE request_type = 'tts' AND status = 'success' AND timestamp >= datetime('now', '-24 hours')"
+                "SELECT COUNT(*) FROM api_requests_log WHERE request_type = 'tts' AND timestamp >= datetime('now', '-24 hours')"
             ) as cursor:
                 stats["tts"]["last_24_hours"]["requests"] = (await cursor.fetchone())[0]
             async with db.execute(
@@ -480,6 +480,51 @@ async def get_model_usage_stats(db_path: str) -> dict:
                 stats["tts"]["last_24_hours"]["errors"] = (await cursor.fetchone())[0]
         except aiosqlite.OperationalError:
             # Fallback if table doesn't exist yet
+            pass
+            
+    return stats
+
+
+async def get_specific_model_usage(db_path: str, model_id: str) -> dict:
+    """Calculates specific model request rates (RPM and RPD) from api_requests_log."""
+    stats = {
+        "last_minute": {"requests": 0, "errors": 0},
+        "last_24_hours": {"requests": 0, "errors": 0}
+    }
+    if not os.path.exists(db_path):
+        return stats
+        
+    # Generate variations (with and without 'models/' prefix)
+    variations = [model_id]
+    if model_id.startswith("models/"):
+        variations.append(model_id[7:])
+    else:
+        variations.append(f"models/{model_id}")
+        
+    placeholders = ",".join(["?"] * len(variations))
+    
+    async with aiosqlite.connect(db_path) as db:
+        try:
+            # RPM (Total requests: success + error)
+            query_rpm_requests = f"SELECT COUNT(*) FROM api_requests_log WHERE model_id IN ({placeholders}) AND timestamp >= datetime('now', '-1 minute')"
+            async with db.execute(query_rpm_requests, variations) as cursor:
+                stats["last_minute"]["requests"] = (await cursor.fetchone())[0]
+                
+            # RPM (Errors only)
+            query_rpm_errors = f"SELECT COUNT(*) FROM api_requests_log WHERE model_id IN ({placeholders}) AND status = 'error' AND timestamp >= datetime('now', '-1 minute')"
+            async with db.execute(query_rpm_errors, variations) as cursor:
+                stats["last_minute"]["errors"] = (await cursor.fetchone())[0]
+
+            # RPD (Total requests: success + error)
+            query_rpd_requests = f"SELECT COUNT(*) FROM api_requests_log WHERE model_id IN ({placeholders}) AND timestamp >= datetime('now', '-24 hours')"
+            async with db.execute(query_rpd_requests, variations) as cursor:
+                stats["last_24_hours"]["requests"] = (await cursor.fetchone())[0]
+                
+            # RPD (Errors only)
+            query_rpd_errors = f"SELECT COUNT(*) FROM api_requests_log WHERE model_id IN ({placeholders}) AND status = 'error' AND timestamp >= datetime('now', '-24 hours')"
+            async with db.execute(query_rpd_errors, variations) as cursor:
+                stats["last_24_hours"]["errors"] = (await cursor.fetchone())[0]
+        except aiosqlite.OperationalError:
             pass
             
     return stats

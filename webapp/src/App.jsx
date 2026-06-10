@@ -839,7 +839,7 @@ function App() {
                         </h3>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                           {modelLimits.models.map((model, idx) => {
-                            const usage = model.is_tts ? modelLimits.usage.tts : modelLimits.usage.text;
+                            const usage = model.usage || (model.is_tts ? modelLimits.usage.tts : modelLimits.usage.text);
                             const rpmPercent = Math.min(100, (usage.last_minute.requests / model.limits.rpm) * 100);
                             const rpdPercent = Math.min(100, (usage.last_24_hours.requests / model.limits.rpd) * 100);
 
@@ -893,6 +893,9 @@ function App() {
                                         <span style={{ color: 'var(--tg-theme-hint-color)' }}>RPM Limit Usage:</span>
                                         <span style={{ fontWeight: '600' }}>
                                           {usage.last_minute.requests} / {model.limits.rpm} RPM
+                                          {usage.last_minute.errors > 0 && (
+                                            <span style={{ color: '#ef4444', marginLeft: 6, fontSize: 10 }}>({usage.last_minute.errors} err)</span>
+                                          )}
                                         </span>
                                       </div>
                                       <div className="progress-bar-bg">
@@ -912,6 +915,9 @@ function App() {
                                         <span style={{ color: 'var(--tg-theme-hint-color)' }}>RPD Limit Usage:</span>
                                         <span style={{ fontWeight: '600' }}>
                                           {usage.last_24_hours.requests} / {model.limits.rpd} RPD
+                                          {usage.last_24_hours.errors > 0 && (
+                                            <span style={{ color: '#ef4444', marginLeft: 6, fontSize: 10 }}>({usage.last_24_hours.errors} err)</span>
+                                          )}
                                         </span>
                                       </div>
                                       <div className="progress-bar-bg">

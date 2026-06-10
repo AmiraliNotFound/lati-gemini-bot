@@ -358,6 +358,9 @@ async def get_model_limits(request):
         curr_rpd = limit_tts_rpd if is_tts else limit_rpd
         limits = {"rpm": curr_rpm, "tpm": 1000000, "rpd": curr_rpd}
         
+        # Get specific model usage stats (total attempts & errors)
+        model_usage = await database.get_specific_model_usage(config.DB_FILE, model_name)
+        
         if not client:
             models_data.append({
                 "model_id": model_name,
@@ -368,7 +371,8 @@ async def get_model_limits(request):
                 "status": "error",
                 "is_tts": is_tts,
                 "error": "API Key or client initialization failed.",
-                "limits": limits
+                "limits": limits,
+                "usage": model_usage
             })
             continue
 
@@ -384,7 +388,8 @@ async def get_model_limits(request):
                 "status": "active",
                 "is_tts": is_tts,
                 "error": None,
-                "limits": limits
+                "limits": limits,
+                "usage": model_usage
             })
         except Exception as e:
             # Try with models/ prefix if it doesn't already have it
@@ -400,7 +405,8 @@ async def get_model_limits(request):
                         "status": "active",
                         "is_tts": is_tts,
                         "error": None,
-                        "limits": limits
+                        "limits": limits,
+                        "usage": model_usage
                     })
                     continue
                 except Exception:
@@ -415,7 +421,8 @@ async def get_model_limits(request):
                 "status": "error",
                 "is_tts": is_tts,
                 "error": str(e),
-                "limits": limits
+                "limits": limits,
+                "usage": model_usage
             })
 
     return web.json_response({
