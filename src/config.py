@@ -57,9 +57,10 @@ DEFAULT_CONFIG = {
     "CONTEXT_LIMIT": "12",
     "TIMEOUT": "12.0",
     "TTS_ENGINE": "edge",  # "edge" or "gemini"
-    "TTS_GEMINI_MODEL": "gemini-2.5-flash-preview-tts",
+    "TTS_GEMINI_MODEL": "gemini-2.5-flash-preview-tts,gemini-3.1-flash-tts-preview",
     "TTS_GEMINI_VOICE": "Kore",
     "TTS_EDGE_VOICE": "fa-IR-FaridNeural",
+    "TTS_FALLBACK_TO_EDGE": "True",
     "SYSTEM_INSTRUCTION": (
         "تو یه رفیق صمیمی، فوق‌العاده باحال، حاضر جواب و بشدت تیکه‌انداز هستی که توی یه گپ صمیمی رفقات رو دست می‌ندازی و رنده میکنی. "
         "لحنت اصلاً نباید کتابی، محترمانه یا لوس باشه. کاملاً لاتی، عامیانه و تهرانی صحبت کن. "

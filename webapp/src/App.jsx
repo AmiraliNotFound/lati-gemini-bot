@@ -596,7 +596,7 @@ function App() {
                 {config.TTS_ENGINE === 'gemini' ? (
                   <>
                     <div className="input-group">
-                      <label>Gemini TTS Model ID</label>
+                      <label>Gemini TTS Model IDs (comma-separated for fallback)</label>
                       <input 
                         type="text" 
                         className="input" 
@@ -617,6 +617,16 @@ function App() {
                         <option value="Aoede">Aoede (Female, clear)</option>
                         <option value="Charon">Charon (Male, soft)</option>
                       </select>
+                    </div>
+                    <div className="input-group" style={{flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 8, marginBottom: 12}}>
+                      <input 
+                        type="checkbox" 
+                        id="fallbackToEdge"
+                        checked={(config.TTS_FALLBACK_TO_EDGE || 'True').toLowerCase() === 'true'} 
+                        onChange={e => setConfig({...config, TTS_FALLBACK_TO_EDGE: e.target.checked ? 'True' : 'False'})} 
+                        style={{width: 20, height: 20, cursor: 'pointer'}}
+                      />
+                      <label htmlFor="fallbackToEdge" style={{cursor: 'pointer', margin: 0}}>Fallback to Edge TTS if all Gemini models fail</label>
                     </div>
                   </>
                 ) : (

@@ -75,103 +75,111 @@ async def generate_voice_reply(text: str, voice_name: str = None) -> str:
             except Exception as cleanup_err:
                 logger.error(f"Failed to delete temp tts mp3: {cleanup_err}")
 
-async def generate_gemini_voice_reply(text: str, model_id: str = None, voice_name: str = None) -> str:
+async def generate_gemini_voice_reply(text: str, voice_name: str = None) -> str:
     """
-    Generates a voice reply using Gemini native TTS capabilities.
+    Generates a voice reply using Gemini native TTS capabilities (supporting multiple fallback models).
     Returns the file path of the OGG audio file, or None if it fails.
     """
-    if not model_id:
-        model_id = config.runtime_config.get("TTS_GEMINI_MODEL", "gemini-2.5-flash-preview-tts")
     if not voice_name:
         voice_name = config.runtime_config.get("TTS_GEMINI_VOICE", "Kore")
         
-    try:
-        client = get_ai_client()
-        # Call generate_content with AUDIO modality
-        config_params = types.GenerateContentConfig(
-            response_modalities=["AUDIO"],
-            speech_config=types.SpeechConfig(
-                voice_config=types.VoiceConfig(
-                    prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                        voice_name=voice_name
-                    )
+    model_str = config.runtime_config.get("TTS_GEMINI_MODEL", "gemini-2.5-flash-preview-tts,gemini-3.1-flash-tts-preview")
+    candidate_models = [m.strip() for m in model_str.split(",") if m.strip()]
+    if not candidate_models:
+        candidate_models = ["gemini-2.5-flash-preview-tts"]
+        
+    client = get_ai_client()
+    config_params = types.GenerateContentConfig(
+        response_modalities=["AUDIO"],
+        speech_config=types.SpeechConfig(
+            voice_config=types.VoiceConfig(
+                prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                    voice_name=voice_name
                 )
             )
         )
-        logger.info(f"Generating Gemini TTS using model {model_id} and voice {voice_name}...")
-        
-        # Call generate_content with a timeout
-        response = await asyncio.wait_for(
-            client.models.generate_content(
-                model=model_id,
-                contents=text,
-                config=config_params
-            ),
-            timeout=10.0
-        )
-        
-        # Extract audio bytes
-        audio_part = None
-        if response.candidates and response.candidates[0].content.parts:
-            for part in response.candidates[0].content.parts:
-                if part.inline_data and part.inline_data.data:
-                    audio_part = part
-                    break
-                    
-        if not audio_part:
-            logger.warning("No audio data returned in Gemini response parts.")
-            return None
-            
-        audio_bytes = audio_part.inline_data.data
-        mime_type = audio_part.inline_data.mime_type or "audio/wav"
-        
-        is_pcm = False
-        sample_rate = 24000
-        channels = 1
-        
-        if "pcm" in mime_type.lower() or "l16" in mime_type.lower():
-            is_pcm = True
-            # Try to extract sample rate from mime type e.g. "rate=24000"
-            match = re.search(r"rate=(\d+)", mime_type.lower())
-            if match:
-                sample_rate = int(match.group(1))
-                
-        ext = "wav"
-        if is_pcm:
-            ext = "raw"
-        elif "ogg" in mime_type:
-            ext = "ogg"
-        elif "mp3" in mime_type:
-            ext = "mp3"
-            
-        temp_filename = f"gemini_tts_{uuid.uuid4().hex}.{ext}"
-        ogg_filename = f"gemini_tts_{uuid.uuid4().hex}.ogg"
-        
-        with open(temp_filename, "wb") as f:
-            f.write(audio_bytes)
-            
+    )
+    
+    last_error = None
+    for model_id in candidate_models:
         try:
-            await asyncio.to_thread(
-                convert_audio_to_ogg, 
-                temp_filename, 
-                ogg_filename, 
-                is_pcm=is_pcm, 
-                sample_rate=sample_rate, 
-                channels=channels
+            logger.info(f"Generating Gemini TTS using model {model_id} and voice {voice_name}...")
+            response = await asyncio.wait_for(
+                client.models.generate_content(
+                    model=model_id,
+                    contents=text,
+                    config=config_params
+                ),
+                timeout=10.0
             )
-            return ogg_filename
-        except Exception as conv_err:
-            logger.error(f"Failed to convert Gemini TTS from {ext} to OGG: {conv_err}")
-            return None
-        finally:
-            if os.path.exists(temp_filename):
-                try:
-                    os.remove(temp_filename)
-                except:
-                    pass
-    except Exception as e:
-        logger.error(f"Failed to generate Gemini TTS: {e}")
-        return None
+            
+            # Extract audio bytes
+            audio_part = None
+            if response.candidates and response.candidates[0].content.parts:
+                for part in response.candidates[0].content.parts:
+                    if part.inline_data and part.inline_data.data:
+                        audio_part = part
+                        break
+                        
+            if not audio_part:
+                logger.warning(f"No audio data returned in Gemini response parts for model {model_id}.")
+                continue
+                
+            audio_bytes = audio_part.inline_data.data
+            mime_type = audio_part.inline_data.mime_type or "audio/wav"
+            
+            is_pcm = False
+            sample_rate = 24000
+            channels = 1
+            
+            if "pcm" in mime_type.lower() or "l16" in mime_type.lower():
+                is_pcm = True
+                match = re.search(r"rate=(\d+)", mime_type.lower())
+                if match:
+                    sample_rate = int(match.group(1))
+                    
+            ext = "wav"
+            if is_pcm:
+                ext = "raw"
+            elif "ogg" in mime_type:
+                ext = "ogg"
+            elif "mp3" in mime_type:
+                ext = "mp3"
+                
+            temp_filename = f"gemini_tts_{uuid.uuid4().hex}.{ext}"
+            ogg_filename = f"gemini_tts_{uuid.uuid4().hex}.ogg"
+            
+            with open(temp_filename, "wb") as f:
+                f.write(audio_bytes)
+                
+            try:
+                await asyncio.to_thread(
+                    convert_audio_to_ogg, 
+                    temp_filename, 
+                    ogg_filename, 
+                    is_pcm=is_pcm, 
+                    sample_rate=sample_rate, 
+                    channels=channels
+                )
+                logger.info(f"Successfully converted Gemini TTS output from model {model_id} to OGG.")
+                return ogg_filename
+            except Exception as conv_err:
+                logger.error(f"Failed to convert Gemini TTS from {ext} to OGG: {conv_err}")
+                continue
+            finally:
+                if os.path.exists(temp_filename):
+                    try:
+                        os.remove(temp_filename)
+                    except:
+                        pass
+        except Exception as e:
+            logger.warning(f"Gemini TTS generation failed for model {model_id}: {e}")
+            last_error = e
+            continue
+            
+    if last_error:
+        logger.error(f"All configured Gemini TTS models failed. Last error: {last_error}")
+    return None
 
 
 # Initialize Google GenAI client lazily to bind correctly to the running event loop
@@ -915,8 +923,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 logger.info("Using Gemini as primary TTS engine...")
                 voice_file = await generate_gemini_voice_reply(bot_response)
                 if not voice_file:
-                    logger.warning("Gemini TTS failed. Falling back to Edge TTS...")
-                    voice_file = await generate_voice_reply(bot_response)
+                    fallback_to_edge = config.runtime_config.get("TTS_FALLBACK_TO_EDGE", "True").strip().lower() == "true"
+                    if fallback_to_edge:
+                        logger.warning("Gemini TTS failed. Falling back to Edge TTS...")
+                        voice_file = await generate_voice_reply(bot_response)
+                    else:
+                        logger.warning("Gemini TTS failed and Edge fallback is disabled. Skipping voice reply.")
             else:
                 logger.info("Using Edge TTS as primary TTS engine...")
                 voice_file = await generate_voice_reply(bot_response)

@@ -1,32 +1,37 @@
 # 🤖 Lati Gemini Telegram Bot
 
-A highly customizable, production-grade, and containerized Telegram Bot powered by the modern **Google GenAI SDK** (Gemini) and featuring an interactive SQLite message-history pipeline. 
+A production-grade, highly customizable, and containerized Telegram Bot powered by the modern **Google GenAI SDK** (Gemini) featuring an asynchronous SQLite database history pipeline, dynamic failover model queues, premium Text-to-Speech (TTS) engines, and a rich moderation web app dashboard.
 
-The bot is calibrated out-of-the-box with a witty, teasing, and sarcastic Persian persona (Tehrani slang). It also features advanced admin analytics, chat broadcasting, and **multimodal support** (handles images and voice messages natively).
+The bot is calibrated out-of-the-box with a witty, teasing, and sarcastic Persian persona (Tehrani slang). It supports multimodal processing (images/audio notes) and features automated high-speed media downloader links.
 
 ---
 
-## ✨ Features
+## ✨ Key Features
 
-* **🧠 Advanced Context Management**: Uses `aiosqlite` to store message histories per chat dynamically. Prunes context buffers efficiently to keep Gemini response latencies low.
-  * **TL;DR Group Summarization**: Type `/tldr` in any group to get a snappy, sarcastic Persian summary of the last 150 messages of drama.
-* **🎭 Random Unprovoked Roasts**: The bot will randomly jump into group chats (with a configurable probability) to roast users without being tagged, making it feel truly alive.
-* **📸 Multimodal Capabilities**: 
-  * **Images**: Send photos to the bot, and it will analyze and roast/respond to them in character.
-  * **Voice Messages**: Send voice notes; the bot downloads and processes the audio natively through Gemini.
-* **📥 Smart Media Downloader**: Automatically detects Instagram, YouTube, and Twitter links in chat. Downloads the actual video via `yt-dlp` and re-uploads it natively so nobody has to click the link!
-  * **Instagram Bypass**: Due to strict data-center IP blocking by Meta, Instagram downloads may require a session cookie. Simply export a fake account's cookies using the "Get cookies.txt LOCALLY" browser extension and upload it to the `data/` folder as `cookies.txt`. The bot will automatically detect and use it to securely bypass the login wall!
-* **🛡️ Secure Configuration**: Zero hardcoded secrets. Fully configured via environment variables and loaded asynchronously.
-* **📊 Robust Admin Control Panel**:
-  * **✨ Interactive Web App Dashboard**: A full React-based GUI panel right inside Telegram! Features butter-smooth sliding animations, glassmorphism toast notifications, and dark-mode styling.
-    * **Stats Tab**: Live auto-updating system metrics (total chats, processed messages, DB size) and a detailed log of the 10 most recent system and scraper errors.
-    * **Mod Tab**: View all active chats with their real names and block/leave them with one click.
-    * **VIPs Tab**: Visual interface to add, edit, and remove Special Users and their custom personas.
-    * **Cast Tab**: Type a broadcast message and fire it to every single user/group instantly.
-    * **Conf Tab**: Adjust context limits, timeouts, model IDs, and system prompts on the fly.
-  * **Fallback Inline Commands**: Classic `/admin` inline commands are still fully supported.
-  * **Lazy Event Loop Binding**: Implements dynamic async client initialization to prevent runtime crashes during container redeployments.
-* **📜 Production Logging**: Captures logs to both the terminal and rotating `bot.log` files.
+### 1. 🧠 Resilient AI Generation & Failover Stack
+- **Context & Pruning**: Utilizes `aiosqlite` to log message histories and prunes them dynamically based on the configured context limits to keep response latency low.
+- **Group Summary (TL;DR)**: Type `/tldr` in any group to get a snappy, sarcastic Persian summary of the last 150 messages of drama.
+- **Configurable Fallback Models**: Specify your primary `MODEL_ID` (e.g. `gemini-2.5-flash`) and a comma-separated queue of `FALLBACK_MODELS` (e.g. `gemini-2.5-flash-lite,gemini-2.5-flash,gemma-4-31b-it`). If the primary model fails or gets rate-limited, the bot automatically steps down the queue to ensure uninterrupted service.
+- **Adaptive VIP Personas**: Configures custom system instructions for specific users. The bot adapts its roasting persona when interacting with registered VIPs.
+
+### 2. 🎙️ Dual-Engine Text-to-Speech (TTS) & Failover
+- **Microsoft Edge TTS (Free, Natural Persian)**: Generates highly optimized, natural-sounding Persian speech (`fa-IR-FaridNeural` or `fa-IR-DilaraNeural`) offline with zero token costs.
+- **Google Gemini TTS (Premium Native Audio)**: Utilizes Google's generative audio models (e.g., `gemini-2.5-flash-preview-tts`, `gemini-3.1-flash-tts-preview`) to generate expressive, prompt-steerable spoken voice replies.
+- **Raw PCM Audio Decoder**: Automatically detects Gemini's raw `audio/L16` (PCM 24kHz mono) format and configures `ffmpeg` dynamically to convert the raw headerless bytes into high-quality, Telegram-compatible OGG files.
+- **Multi-Model Gemini TTS Loop**: Specify a comma-separated list of Gemini TTS models (e.g. `gemini-2.5-flash-preview-tts,gemini-3.1-flash-tts-preview`). If the primary TTS model is rate-limited or fails, the bot fails over to the next TTS model.
+- **Configurable Edge Fallback**: If Gemini TTS fails entirely, the bot checks the `TTS_FALLBACK_TO_EDGE` setting. If enabled (`True`), it automatically falls back to Edge TTS to generate the audio, ensuring the user always receives a voice response.
+
+### 3. 📥 High-Speed Video Downloader with Stream Fallback
+- **Inline Previews & Streaming**: Automatically detects Instagram, YouTube, and Twitter/X links in messages. Utilizes `yt-dlp` to download media, queries metadata via `ffprobe` (to extract width, height, and duration), and generates a thumbnail using `ffmpeg`. Re-uploads the file to Telegram enabling instant in-app streaming.
+- **Telegram 50MB Bypass**: Telegram Bots are restricted to a **50 MB** maximum file upload limit. If a downloaded video exceeds 50 MB (or if transmission fails), the bot retrieves Cobalt's high-speed CDN direct stream download link and replies to the user with the direct link.
+- **Instagram Scraper Bypass**: Due to Meta's strict IP blocking, you can place a fake account's cookies inside `data/cookies.txt` (via browser extension formats). The bot will automatically detect and utilize them to bypass security blocks.
+
+### 4. 📊 Admin WebApp Dashboard
+A React-based GUI console built directly inside the Telegram interface featuring Dark Mode, glassmorphism design, and smooth slide drawers:
+- **Stats Tab**: View real-time database sizing, active chat metrics, and the 10 most recent scraper/system errors.
+- **Mod Tab**: View all active chats, toggle mute status, set custom roast chances, and configure message cooldown windows. Includes consolidated VIP/Special User overrides.
+- **Cast Tab**: Instantly send broadcast messages to all group chats and users stored in the database.
+- **Conf Tab**: Dynamically configure context windows, API timeouts, system persona prompts, model fallback queues, and TTS engine settings.
 
 ---
 
@@ -39,9 +44,15 @@ lati_gemini_bot/
 │   ├── config.py        # Settings loader, environment validations, and logging setup
 │   ├── database.py      # Asynchronous database connection, schema setup, stats, and operations
 │   └── handlers.py      # Core Telegram handlers (Admin commands, Text/Multimodal messaging)
+├── webapp/
+│   ├── src/
+│   │   ├── App.jsx      # React WebApp frontend layout and dynamic configuration bindings
+│   │   └── main.jsx     # Frontend entry point
+│   ├── index.html       # WebApp template
+│   └── vite.config.js   # Vite builder configurations
 ├── main.py              # Main entry point to initialize and start bot polling
 ├── requirements.txt     # Python dependency definitions
-├── Dockerfile           # Multi-stage optimized Docker build definition
+├── Dockerfile           # Multi-stage optimized Docker build definition (React + Python)
 ├── docker-compose.yml   # Compose setup for Docker volume and env mounts
 ├── .env.example         # Template configuration file
 └── README.md            # Comprehensive system documentation
@@ -51,105 +62,75 @@ lati_gemini_bot/
 
 ## 🚀 Deployment Guide
 
-### Option A: The Recommended Docker Method (1-Click Deployment)
+### Option A: Optimized Docker Deployment (Recommended)
 
-The most robust way to deploy the bot on your VPS or server is utilizing Docker. This isolates Python runtime dependencies and prevents OS configuration mismatches.
+Docker isolates the runtime environment, handles the multi-stage React production builds, and installs system audio dependencies like `ffmpeg` and `ffprobe` out of the box.
 
-#### 1. Pre-requisites
-Ensure Docker and Docker Compose are installed on your VPS:
+#### 1. Setup Prerequisites
+Ensure Docker and Docker Compose are installed:
 ```bash
 sudo apt update && sudo apt install docker.io docker-compose -y
 ```
 
-#### 2. Deploy Code
-Clone or move the project folder onto the VPS at `/opt/lati_gemini_bot`:
+#### 2. Copy Code and Configure Settings
+Clone the repository to `/opt/lati_gemini_bot` and configure the environment variables:
 ```bash
-mkdir -p /opt/lati_gemini_bot
 cd /opt/lati_gemini_bot
-# (Copy project files here via SFTP, git, or nano)
-```
-
-#### 3. Configuration
-Copy the template configuration file and fill in your secrets:
-```bash
 cp .env.example .env
 nano .env
 ```
-Fill in:
-* `TELEGRAM_TOKEN` (from [@BotFather](https://t.me/BotFather))
-* `GEMINI_API_KEY` (from [Google AI Studio](https://aistudio.google.com))
-* `ALLOWED_ADMINS` (your username, e.g., `AmiraliNotFound`)
-* `WEBAPP_URL` (optional, e.g., `https://admin.yourdomain.com` — enables the Telegram Mini App dashboard button inside `/admin`)
+Fill in the following fields:
+* `TELEGRAM_TOKEN`: Your bot API token (from [@BotFather](https://t.me/BotFather))
+* `GEMINI_API_KEY`: Google Gemini API key (from [Google AI Studio](https://aistudio.google.com))
+* `ALLOWED_ADMINS`: Comma-separated list of admin usernames allowed to access settings (e.g. `AmiraliNotFound,MyUser`)
+* `WEBAPP_URL`: Optional (e.g., `https://admin.yourdomain.com`). Set this to enable the WebApp Mini App button.
 
-#### 4. Launch Bot Container
-Run the bot daemon in the background:
+#### 3. Start the Container
+Start the containerized bot in the background:
 ```bash
 docker-compose up -d --build
 ```
-Your database will persist inside the `./data` directory on the VPS automatically. The backend API for the WebApp will be exposed on port `8080`.
+Your database and custom configurations will persist inside the local `./data` folder automatically. The Admin WebApp API will be exposed on port `8080`.
 
-#### 5. Cloudflare Tunnel / WebApp Setup
-If you want to use the Mini App Dashboard, you must serve the app over HTTPS. The easiest way is using a free Cloudflare Tunnel:
-1. Point your free domain (e.g., `admin.yourdomain.com`) to `http://localhost:8080` using `cloudflared`.
-2. Add `WEBAPP_URL=https://admin.yourdomain.com` to your `.env` file.
-3. Restart the bot (`docker-compose down && docker-compose up -d`).
-4. Now, typing `/admin` will show a shiny "🚀 Open Admin Dashboard" button!
-
-#### 5. Verify Logs
-```bash
-docker-compose logs -f --tail=50
-```
-
-#### Troubleshooting Updates (`KeyError: ContainerConfig`)
-If you are using the older `docker-compose` (hyphenated) and encounter a `KeyError: ContainerConfig` crash when deploying new code, it is due to an incompatibility with modern Docker engines. To bypass it:
-```bash
-# Clean the old container state first
-docker-compose down
-# Rebuild and run fresh
-docker-compose up -d --build
-```
+#### 4. Setup Secure HTTPS for WebApp (Cloudflare Tunnel)
+Telegram requires all WebApp Mini Apps to be served over HTTPS. You can easily set up a free Cloudflare Tunnel:
+1. Direct your domain (e.g. `admin.yourdomain.com`) to `http://localhost:8080` in your Cloudflare dashboard.
+2. Add `WEBAPP_URL=https://admin.yourdomain.com` inside your `.env` file.
+3. Restart the containers (`docker-compose down && docker-compose up -d`).
+4. Type `/admin` in chat to reveal the "🚀 Open Admin Dashboard" button.
 
 ---
 
-### Option B: The Manual Systemd Method
+### Option B: Manual Host Deployment (Systemd)
 
-If you prefer deploying directly inside the host system using Python and Systemd:
-
-#### 1. Setup Environment on Server
-Install system runtime dependencies:
+#### 1. Install System Dependencies
+Install system runtimes, Python, SQLite, and audio tools:
 ```bash
 sudo apt update && sudo apt upgrade -y
-sudo apt install python3-pip python3-venv sqlite3 git -y
+sudo apt install python3-pip python3-venv sqlite3 ffmpeg git -y
 ```
 
-#### 2. Create Isolated Path & Copy Code
+#### 2. Configure Virtual Environment & Install Requirements
 ```bash
-mkdir -p /opt/lati_gemini_bot
 cd /opt/lati_gemini_bot
-# (Copy project files here)
-```
-
-#### 3. Configure the Virtual Environment
-Create and activate the virtual environment, then install Python requirements:
-```bash
 python3 -m venv venv
 source venv/bin/activate
-pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-#### 4. Configuration Secrets Setup
-Create the production environment file:
+#### 3. Build WebApp Client Assets
 ```bash
-cp .env.example .env
-nano .env
+cd webapp
+npm install
+npm run build
+cd ..
 ```
 
-#### 5. Create Systemd Service File
+#### 4. Create Service Daemon
 ```bash
 sudo nano /etc/systemd/system/gemini-bot.service
 ```
-Paste the following service configuration:
+Paste the configuration:
 ```ini
 [Unit]
 Description=Lati Gemini Telegram Bot Service
@@ -166,50 +147,51 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 ```
-Save and exit (`Ctrl + O`, `Enter`, `Ctrl + X`).
-
-#### 6. Fire Up the Daemon
+Enable and start the service:
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable gemini-bot.service
 sudo systemctl start gemini-bot.service
 ```
 
-#### 7. Verify Logs
-```bash
-sudo journalctl -u gemini-bot.service -f -n 50
-```
+---
+
+## ⚙️ Configuration Properties
+
+| Key | Default Value | Description |
+| :--- | :--- | :--- |
+| `MODEL_ID` | `gemini-2.5-flash` | The primary Google Gemini model ID for chat replies. |
+| `FALLBACK_MODELS` | `gemini-2.5-flash-lite,gemini-2.5-flash,gemma-4-31b-it` | Comma-separated queue of models used if primary generation fails. |
+| `CONTEXT_LIMIT` | `12` | Historical message window limit sent to the model. |
+| `TIMEOUT` | `12.0` | API generation timeout threshold in seconds. |
+| `TTS_ENGINE` | `edge` | Active TTS Engine (`edge` or `gemini`). |
+| `TTS_GEMINI_MODEL` | `gemini-2.5-flash-preview-tts,gemini-3.1-flash-tts-preview` | Comma-separated list of Gemini models used for TTS. |
+| `TTS_GEMINI_VOICE` | `Kore` | Gemini voice name (`Kore`, `Puck`, `Fenrir`, `Aoede`, `Charon`). |
+| `TTS_EDGE_VOICE` | `fa-IR-FaridNeural` | Edge voice name (`fa-IR-FaridNeural`, `fa-IR-DilaraNeural`). |
+| `TTS_FALLBACK_TO_EDGE`| `True` | Fallback to Edge TTS if all Gemini TTS models fail (`True` / `False`). |
+| `RANDOM_ROAST_CHANCE` | `0.02` | Probability (0.0 to 1.0) that the bot roasts an unprovoked message. |
+| `SYSTEM_INSTRUCTION` | *(Persian Persona)* | Custom persona settings / default prompt. |
 
 ---
 
-## 💬 General Commands
+## 💬 Command Reference
 
-These commands can be used by anyone in a group chat where the bot is active:
+### User Commands
+- `/start`: Cheeky greeting message.
+- `/tldr`: Summarizes group chat topics and drama sarcasticly (Persian slang, up to 150 messages).
 
-| Command | Action / Parameter Description |
-| :--- | :--- |
-| `/start` | Cheeky entry point command greeting |
-| `/tldr` | Summarizes the drama and main topics of the recent chat history (up to 150 messages) in Persian slang |
-
----
-
-## 🛠️ Admin Commands
-
-Administrators defined in the `.env` configuration can execute parameters inside the bot's private message screen:
-
-| Command | Action / Parameter Description |
-| :--- | :--- |
-| `/admin` | Displays configuration dashboard with available dynamic options |
-| `/admin set_model <model_id>` | Changes Gemini model ID (e.g. `gemini-2.5-flash`) |
-| `/admin set_limit <number>` | Configures historical context window limit |
-| `/admin set_timeout <float>` | Timeout threshold for AI responses in seconds |
-| `/admin set_chance <float>` | Random unprovoked roast probability (0.0 to 1.0) |
-| `/admin set_instruction <text>` | Overwrites the system persona/prompt |
-| `/admin add_special <username/name> <instruction>` | Creates or updates a special user/VIP with a custom system prompt override. For account names containing spaces, wrap them in quotes (e.g. `add_special "John Doe" instruction`). |
-| `/admin remove_special <username/name>` | Removes a special user's custom override (supports quotes for names with spaces). |
-| `/admin list_special` | Displays all registered special users |
-| `/admin stats` | Outputs total messages processed, unique chat IDs, and SQLite database file size |
-| `/admin broadcast <text>` | Instantly broadcasts a message to every active chat saved in the database |
+### Admin Inline Commands
+- `/admin`: Displays configuration dashboard metrics.
+- `/admin set_model <model_id>`: Changes primary Gemini model ID.
+- `/admin set_limit <number>`: Sets conversation history context limit.
+- `/admin set_timeout <float>`: Sets AI response generation timeouts.
+- `/admin set_chance <float>`: Sets random unprovoked roast probability.
+- `/admin set_instruction <prompt>`: Overwrites system persona prompts.
+- `/admin add_special <name> <prompt>`: Assigns unique VIP roasting instructions.
+- `/admin remove_special <name>`: Removes VIP instructions.
+- `/admin list_special`: Lists all registered VIP accounts.
+- `/admin stats`: Outputs database size and message counts.
+- `/admin broadcast <text>`: Sends broadcast alerts to all active chats.
 
 ---
 
