@@ -9,8 +9,10 @@ import subprocess
 
 try:
     import yt_dlp
+    from yt_dlp.networking.impersonate import ImpersonateTarget
 except ImportError:
     yt_dlp = None
+    ImpersonateTarget = None
 
 try:
     import edge_tts
@@ -91,6 +93,7 @@ async def generate_voice_reply(text: str, voice_name: str = None) -> str:
         return ogg_filename
     except Exception as e:
         logger.error(f"Failed to generate Edge TTS voice reply: {e}")
+        await database.log_error(config.DB_FILE, "TTS_ERROR", f"Edge TTS failed: {e}", traceback.format_exc())
         return None
     finally:
         if os.path.exists(mp3_filename):
@@ -190,6 +193,7 @@ async def generate_gemini_voice_reply(text: str, voice_name: str = None) -> str:
                 return ogg_filename
             except Exception as conv_err:
                 logger.error(f"Failed to convert Gemini TTS from {ext} to OGG: {conv_err}")
+                await database.log_error(config.DB_FILE, "TTS_ERROR", f"Failed to convert Gemini TTS from {ext} to OGG: {conv_err}", traceback.format_exc())
                 continue
             finally:
                 if os.path.exists(temp_filename):
@@ -205,6 +209,7 @@ async def generate_gemini_voice_reply(text: str, voice_name: str = None) -> str:
             
     if last_error:
         logger.error(f"All configured Gemini TTS models failed. Last error: {last_error}")
+        await database.log_error(config.DB_FILE, "TTS_ERROR", f"All configured Gemini TTS models failed. Last error: {last_error}", traceback.format_exc())
     return None
 
 
@@ -336,6 +341,7 @@ async def admin_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await asyncio.sleep(0.05)  # Rate limiting protection
             except Exception as e:
                 logger.error(f"Failed to send broadcast to chat {cid}: {e}")
+                await database.log_error(config.DB_FILE, "BROADCAST_ERROR", f"Failed to send broadcast to chat {cid}: {e}", traceback.format_exc())
                 fail_count += 1
                 
         await status_msg.edit_text(
@@ -548,6 +554,7 @@ async def cobalt_fallback_download(url: str, output_path: str) -> tuple[bool, st
                         return False, video_url
     except Exception as e:
         logger.error(f"Cobalt fallback failed: {e}")
+        await database.log_error(config.DB_FILE, "DOWNLOAD_COBALT_ERROR", f"Cobalt fallback failed: {e}", traceback.format_exc())
     return False, None
 
 def sync_download_video(url: str, output_path: str):
@@ -558,7 +565,7 @@ def sync_download_video(url: str, output_path: str):
     if "instagram.com" in url or "x.com" in url or "twitter.com" in url:
         url = url.split("?")[0]
         
-    ydl_opts = {
+    ydl_opts_base = {
         'outtmpl': output_path,
         'format': 'best[ext=mp4]/best',
         'noplaylist': True,
@@ -573,13 +580,50 @@ def sync_download_video(url: str, output_path: str):
     cookies_data_path = os.path.join(os.path.dirname(config.DB_FILE), "cookies.txt")
     cookies_root_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "cookies.txt")
     
+    cookies_exist = False
     if os.path.exists(cookies_data_path):
-        ydl_opts['cookiefile'] = cookies_data_path
+        ydl_opts_base['cookiefile'] = cookies_data_path
+        cookies_exist = True
     elif os.path.exists(cookies_root_path):
-        ydl_opts['cookiefile'] = cookies_root_path
+        ydl_opts_base['cookiefile'] = cookies_root_path
+        cookies_exist = True
         
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        ydl.download([url])
+    if cookies_exist:
+        logger.info("Cookies defined. Attempting standard download.")
+        with yt_dlp.YoutubeDL(ydl_opts_base) as ydl:
+            ydl.download([url])
+        return
+
+    # Use impersonation client for Instagram downloading to not be contingent on cookies
+    if ImpersonateTarget:
+        targets = [
+            'chrome-131:android-14',
+            'safari-18.0:ios-18.0',
+            'chrome-110:windows-10',
+            'chrome',
+            'safari',
+            'firefox',
+            'edge'
+        ]
+        last_err = None
+        for target in targets:
+            try:
+                ydl_opts = ydl_opts_base.copy()
+                ydl_opts['impersonate'] = ImpersonateTarget.from_str(target)
+                logger.info(f"Attempting download with impersonate target: {target}")
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    ydl.download([url])
+                logger.info(f"Download succeeded using impersonate target: {target}")
+                return
+            except Exception as e:
+                logger.warning(f"Download with impersonation target {target} failed: {e}")
+                last_err = e
+        if last_err:
+            raise last_err
+    else:
+        # Fallback to standard download if ImpersonateTarget is not imported
+        with yt_dlp.YoutubeDL(ydl_opts_base) as ydl:
+            ydl.download([url])
 
 import json
 
@@ -607,6 +651,10 @@ def get_video_metadata(video_path: str) -> dict:
             return metadata
     except Exception as e:
         logger.error(f"Failed to query ffprobe metadata: {e}")
+        try:
+            asyncio.run(database.log_error(config.DB_FILE, "FFPROBE_ERROR", f"Failed to query ffprobe metadata: {e}", traceback.format_exc()))
+        except Exception:
+            pass
     return {}
 
 def generate_video_thumbnail(video_path: str, thumbnail_path: str) -> bool:
@@ -619,6 +667,10 @@ def generate_video_thumbnail(video_path: str, thumbnail_path: str) -> bool:
         return result.returncode == 0
     except Exception as e:
         logger.error(f"Failed to generate video thumbnail: {e}")
+        try:
+            asyncio.run(database.log_error(config.DB_FILE, "FFMPEG_ERROR", f"Failed to generate video thumbnail: {e}", traceback.format_exc()))
+        except Exception:
+            pass
     return False
 
 async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_TYPE, url: str):
@@ -660,6 +712,7 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
             return True
         except Exception as send_err:
             logger.error(f"Failed to send video file: {send_err}")
+            await database.log_error(config.DB_FILE, "TELEGRAM_SEND_ERROR", f"Failed to send video file: {send_err}", traceback.format_exc())
             raise send_err
 
     try:
@@ -678,6 +731,7 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
                 logger.warning("yt-dlp sync download did not produce a file.")
         except Exception as ytdl_err:
             logger.error(f"yt-dlp failed: {ytdl_err}")
+            await database.log_error(config.DB_FILE, "DOWNLOAD_YTDL_ERROR", f"yt-dlp failed for URL {url}: {ytdl_err}", traceback.format_exc())
 
         # Step 2: Try Cobalt Fallback
         cobalt_stream_url = None
@@ -706,6 +760,7 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
                 return
         except Exception as cobalt_err:
             logger.error(f"Cobalt process failed: {cobalt_err}")
+            await database.log_error(config.DB_FILE, "DOWNLOAD_COBALT_ERROR", f"Cobalt fallback process failed for URL {url}: {cobalt_err}", traceback.format_exc())
 
         # Step 3: Failure message
         if "instagram.com" in url:
@@ -741,6 +796,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await context.bot.leave_chat(chat_id)
             except Exception as e:
                 logger.error(f"Failed to leave blocked chat {chat_id}: {e}")
+                await database.log_error(config.DB_FILE, "TELEGRAM_API_ERROR", f"Failed to leave blocked chat {chat_id}: {e}", traceback.format_exc())
         return
 
     # 1.5 Mute Check
@@ -894,6 +950,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as media_err:
         logger.error(f"Error handling media download: {media_err}")
+        await database.log_error(config.DB_FILE, "MEDIA_DOWNLOAD_ERROR", f"Error handling media download: {media_err}", traceback.format_exc())
         # Proceed with text transcript prompt even if downloading media fails
 
     try:
@@ -970,6 +1027,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     sent_voice = True
                 except Exception as voice_send_err:
                     logger.error(f"Failed to send voice reply: {voice_send_err}")
+                    await database.log_error(config.DB_FILE, "TELEGRAM_SEND_ERROR", f"Failed to send voice reply: {voice_send_err}", traceback.format_exc())
                 finally:
                     if os.path.exists(voice_file):
                         try:
@@ -984,6 +1042,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except asyncio.TimeoutError:
         logger.error("GenAI pipeline processing exceeded standard time boundaries.")
+        await database.log_error(config.DB_FILE, "GENAI_TIMEOUT_ERROR", "GenAI pipeline processing exceeded standard time boundaries.", traceback.format_exc())
         await update.message.reply_text("سرعت اینترنت خودت داغونه یا گوگل ریده؟ طول کشید، دوباره بگو 🥱")
     except Exception as e:
         error_msg = str(e)

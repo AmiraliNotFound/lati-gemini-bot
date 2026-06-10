@@ -24,7 +24,7 @@ The bot is calibrated out-of-the-box with a witty, teasing, and sarcastic Persia
 ### 3. 📥 High-Speed Video Downloader with Stream Fallback
 - **Inline Previews & Streaming**: Automatically detects Instagram, YouTube, and Twitter/X links in messages. Utilizes `yt-dlp` to download media, queries metadata via `ffprobe` (to extract width, height, and duration), and generates a thumbnail using `ffmpeg`. Re-uploads the file to Telegram enabling instant in-app streaming.
 - **Telegram 50MB Bypass**: Telegram Bots are restricted to a **50 MB** maximum file upload limit. If a downloaded video exceeds 50 MB (or if transmission fails), the bot retrieves Cobalt's high-speed CDN direct stream download link and replies to the user with the direct link.
-- **Instagram Scraper Bypass**: Due to Meta's strict IP blocking, you can place a fake account's cookies inside `data/cookies.txt` (via browser extension formats). The bot will automatically detect and utilize them to bypass security blocks.
+- **Instagram Scraper Bypass & Impersonation**: If cookies are not configured, the bot automatically utilizes dynamic browser impersonation (e.g. Chrome, Safari on iOS, Firefox, Edge) to mimic real user TLS fingerprints and bypass Instagram's login blocks/CAPTCHAs. If needed, you can still place cookies inside `data/cookies.txt` as a manual override.
 
 ### 4. 📊 Admin WebApp Dashboard
 A React-based GUI console built directly inside the Telegram interface featuring Dark Mode, glassmorphism design, and smooth slide drawers:

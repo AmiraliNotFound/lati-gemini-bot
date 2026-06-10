@@ -26,6 +26,8 @@ async def post_init(application: Application) -> None:
         logger.info("Database and Server initialized successfully. Commands registered.")
     except Exception as e:
         logger.error(f"Failed to register commands: {e}")
+        import traceback
+        await database.log_error(config.DB_FILE, "TELEGRAM_API_ERROR", str(e), traceback.format_exc())
 
 def main():
     # Initialize logger configuration

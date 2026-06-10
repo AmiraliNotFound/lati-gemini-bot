@@ -5,6 +5,7 @@ import hmac
 import hashlib
 import time
 import asyncio
+import traceback
 from urllib.parse import parse_qsl
 from aiohttp import web
 import aiohttp_cors
@@ -43,6 +44,10 @@ def validate_telegram_webapp_data(token: str, init_data: str) -> bool:
         return True
     except Exception as e:
         logger.error(f"Error validating WebApp data: {e}")
+        try:
+            asyncio.run(database.log_error(config.DB_FILE, "WEBAPP_AUTH_ERROR", f"Error validating WebApp data: {e}", traceback.format_exc()))
+        except Exception:
+            pass
         return False
 
 def check_auth(request):
@@ -93,6 +98,10 @@ def check_auth(request):
             )
     except Exception as e:
         logger.error(f"Failed to check admin permissions: {e}")
+        try:
+            asyncio.run(database.log_error(config.DB_FILE, "WEBAPP_AUTH_ERROR", f"Failed to check admin permissions: {e}", traceback.format_exc()))
+        except Exception:
+            pass
         raise web.HTTPForbidden(
             text=json.dumps({"status": "error", "reason": f"Permission verification failed: {e}"}),
             content_type="application/json"
@@ -150,6 +159,7 @@ async def leave_chat_handler(request):
         return web.json_response({"status": "success"})
     except Exception as e:
         logger.error(f"Failed to leave chat {chat_id}: {e}")
+        await database.log_error(config.DB_FILE, "TELEGRAM_API_ERROR", f"Failed to leave chat {chat_id}: {e}", traceback.format_exc())
         return web.json_response({"status": "error", "reason": str(e)}, status=500)
 
 async def alert_chat_handler(request):
@@ -167,6 +177,7 @@ async def alert_chat_handler(request):
         return web.json_response({"status": "success"})
     except Exception as e:
         logger.error(f"Failed to send alert to chat {chat_id}: {e}")
+        await database.log_error(config.DB_FILE, "TELEGRAM_SEND_ERROR", f"Failed to send alert to chat {chat_id}: {e}", traceback.format_exc())
         return web.json_response({"status": "error", "reason": str(e)}, status=500)
 
 async def get_top_users_handler(request):
@@ -197,6 +208,7 @@ async def block_target(request):
             await app.bot.leave_chat(target_id)
         except Exception as e:
             logger.error(f"Could not leave chat {target_id}: {e}")
+            await database.log_error(config.DB_FILE, "TELEGRAM_API_ERROR", f"Could not leave chat {target_id}: {e}", traceback.format_exc())
             
     return web.json_response({"status": "success"})
 
@@ -271,6 +283,7 @@ async def upload_cookies(request):
         return web.json_response({"status": "success"})
     except Exception as e:
         logger.error(f"Failed to save uploaded cookies: {e}")
+        await database.log_error(config.DB_FILE, "COOKIES_UPLOAD_ERROR", f"Failed to save uploaded cookies: {e}", traceback.format_exc())
         return web.json_response({"status": "error", "reason": str(e)}, status=500)
 
 async def update_ytdlp(request):
@@ -288,9 +301,11 @@ async def update_ytdlp(request):
         else:
             reason = stderr.decode() or "Unknown process error"
             logger.error(f"Failed to update yt-dlp: {reason}")
+            await database.log_error(config.DB_FILE, "SYSTEM_UPDATE_ERROR", f"Failed to update yt-dlp: {reason}")
             return web.json_response({"status": "error", "reason": reason}, status=500)
     except Exception as e:
         logger.error(f"Failed to update yt-dlp via subprocess: {e}")
+        await database.log_error(config.DB_FILE, "SYSTEM_UPDATE_ERROR", f"Failed to update yt-dlp via subprocess: {e}", traceback.format_exc())
         return web.json_response({"status": "error", "reason": str(e)}, status=500)
 
 async def get_model_limits(request):
@@ -350,6 +365,7 @@ async def get_model_limits(request):
         client = get_ai_client()
     except Exception as e:
         logger.error(f"Failed to initialize AI Client for limits check: {e}")
+        await database.log_error(config.DB_FILE, "GENAI_ERROR", f"Failed to initialize AI Client for limits check: {e}", traceback.format_exc())
         client = None
 
     for model_name in sorted(list(models_in_use)):
