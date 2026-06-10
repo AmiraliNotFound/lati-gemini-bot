@@ -56,13 +56,16 @@ function App() {
 
   const openManageModal = (chat) => {
     setSelectedChat(chat);
-    setOverrideRoastChance(chat.custom_roast_chance !== null);
+    setEditMuted(chat.is_muted === 1);
+    setEditOverrideRoast(chat.custom_roast_chance !== null);
     setCustomRoastChanceValue(chat.custom_roast_chance !== null ? chat.custom_roast_chance : (config?.RANDOM_ROAST_CHANCE || 0.02));
-    setOverrideCooldown(chat.custom_cooldown !== null);
+    setEditOverrideCooldown(chat.custom_cooldown !== null);
     setCustomCooldownValue(chat.custom_cooldown !== null ? chat.custom_cooldown : 60);
     setAlertText('');
     setTopUsers([]);
-    fetchTopUsers(chat.chat_id);
+    if (chat.type !== 'private') {
+      fetchTopUsers(chat.chat_id);
+    }
   };
 
   const fetchTopUsers = async (chatId) => {
@@ -82,9 +85,9 @@ function App() {
     try {
       await axios.post(`${API_BASE}/chat/settings`, {
         chat_id: selectedChat.chat_id,
-        is_muted: selectedChat.is_muted,
-        custom_roast_chance: overrideRoastChance ? parseFloat(customRoastChanceValue) : null,
-        custom_cooldown: overrideCooldown ? parseInt(customCooldownValue) : null
+        is_muted: editMuted ? 1 : 0,
+        custom_roast_chance: editOverrideRoast ? parseFloat(customRoastChanceValue) : null,
+        custom_cooldown: editOverrideCooldown ? parseInt(customCooldownValue) : null
       });
       showToast("Chat settings saved successfully!");
       fetchData(); // Refresh list to get updated setting values
@@ -92,8 +95,9 @@ function App() {
       // Update selectedChat local values so UI stays sync'd
       setSelectedChat(prev => ({
         ...prev,
-        custom_roast_chance: overrideRoastChance ? parseFloat(customRoastChanceValue) : null,
-        custom_cooldown: overrideCooldown ? parseInt(customCooldownValue) : null
+        is_muted: editMuted ? 1 : 0,
+        custom_roast_chance: editOverrideRoast ? parseFloat(customRoastChanceValue) : null,
+        custom_cooldown: editOverrideCooldown ? parseInt(customCooldownValue) : null
       }));
     } catch (e) {
       showToast("Failed to save chat settings.");
@@ -299,7 +303,7 @@ function App() {
     setUpdatingScraper(false);
   };
 
-  const tabsList = ['dashboard', 'moderation', 'specials', 'broadcast', 'settings'];
+  const tabsList = ['dashboard', 'moderation', 'broadcast', 'settings'];
   const activeIndex = tabsList.indexOf(activeTab);
 
   return (
@@ -340,8 +344,8 @@ function App() {
         <div style={{
           position: 'absolute',
           top: 4, bottom: 4,
-          left: `calc(4px + (100% - 8px) / 5 * ${activeIndex})`,
-          width: `calc((100% - 8px) / 5)`,
+          left: `calc(4px + (100% - 8px) / 4 * ${activeIndex})`,
+          width: `calc((100% - 8px) / 4)`,
           backgroundColor: 'var(--tg-theme-bg-color)',
           borderRadius: '8px',
           boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
@@ -349,19 +353,16 @@ function App() {
           zIndex: 0
         }} />
         
-        <div className={`tab ${activeTab === 'dashboard' ? 'active' : ''}`} onClick={() => setActiveTab('dashboard')}>
+        <div className={`tab ${activeTab === 'dashboard' ? 'active' : ''}`} onClick={() => { setActiveTab('dashboard'); setSelectedChat(null); }}>
           <Activity size={16} /> <span>Stats</span>
         </div>
-        <div className={`tab ${activeTab === 'moderation' ? 'active' : ''}`} onClick={() => setActiveTab('moderation')}>
+        <div className={`tab ${activeTab === 'moderation' ? 'active' : ''}`} onClick={() => { setActiveTab('moderation'); setSelectedChat(null); }}>
           <ShieldAlert size={16} /> <span>Mod</span>
         </div>
-        <div className={`tab ${activeTab === 'specials' ? 'active' : ''}`} onClick={() => setActiveTab('specials')}>
-          <Users size={16} /> <span>VIPs</span>
-        </div>
-        <div className={`tab ${activeTab === 'broadcast' ? 'active' : ''}`} onClick={() => setActiveTab('broadcast')}>
+        <div className={`tab ${activeTab === 'broadcast' ? 'active' : ''}`} onClick={() => { setActiveTab('broadcast'); setSelectedChat(null); }}>
           <Megaphone size={16} /> <span>Cast</span>
         </div>
-        <div className={`tab ${activeTab === 'settings' ? 'active' : ''}`} onClick={() => setActiveTab('settings')}>
+        <div className={`tab ${activeTab === 'settings' ? 'active' : ''}`} onClick={() => { setActiveTab('settings'); setSelectedChat(null); }}>
           <Settings size={16} /> <span>Conf</span>
         </div>
       </div>
@@ -412,18 +413,18 @@ function App() {
                 <input 
                   type="text" 
                   className="search-input" 
-                  placeholder="Search chats by name or ID..." 
+                  placeholder="Search chats or special instructions..." 
                   value={searchTerm} 
                   onChange={e => setSearchTerm(e.target.value)} 
                 />
               </div>
 
               <div className="filter-container">
-                {['all', 'groups', 'dms', 'muted', 'blocked'].map(f => (
+                {['all', 'groups', 'dms', 'muted', 'vips', 'blocked'].map(f => (
                   <button 
                     key={f} 
                     className={`filter-btn ${currentFilter === f ? 'active' : ''}`}
-                    onClick={() => setCurrentFilter(f)}
+                    onClick={() => { setCurrentFilter(f); setSelectedChat(null); }}
                   >
                     {f.toUpperCase()}
                   </button>
@@ -448,6 +449,37 @@ function App() {
                     ))}
                   {blocked.filter(b => b.name.toLowerCase().includes(searchTerm.toLowerCase()) || String(b.id).includes(searchTerm)).length === 0 && (
                     <p style={{color: '#a1a1aa'}}>No blocked users/groups matching criteria.</p>
+                  )}
+                </div>
+              ) : currentFilter === 'vips' ? (
+                <div className="card">
+                  <h2><Users size={18}/> Special Users (VIP Overrides)</h2>
+                  <p style={{fontSize: '12px', color: '#a1a1aa', marginBottom: '12px'}}>
+                    Configure custom system instructions for specific usernames or account names.
+                  </p>
+                  <div className="input-group">
+                    <input type="text" className="input" placeholder="Username or Account Name (e.g. AmiraliNotFound or John Doe)" value={newSpecial.username} onChange={e => setNewSpecial({...newSpecial, username: e.target.value})} />
+                  </div>
+                  <div className="input-group">
+                    <textarea className="input" rows="3" placeholder="Custom persona instructions..." value={newSpecial.instruction} onChange={e => setNewSpecial({...newSpecial, instruction: e.target.value})}></textarea>
+                  </div>
+                  <button className="btn" style={{width: '100%', marginBottom: 16, justifyContent: 'center'}} onClick={addSpecial}>Add Special User</button>
+
+                  <hr style={{borderColor: 'var(--border-color)', margin: '16px 0'}} />
+                  
+                  {specials
+                    .filter(s => s.username.toLowerCase().includes(searchTerm.toLowerCase()) || s.instruction.toLowerCase().includes(searchTerm.toLowerCase()))
+                    .map(s => (
+                      <div className="list-item" key={s.username} style={{alignItems: 'flex-start', flexDirection: 'column', gap: 8, padding: '12px 0'}}>
+                        <div style={{display:'flex', justifyContent:'space-between', width:'100%', alignItems: 'center'}}>
+                          <div className="item-name" style={{fontWeight: 600}}>{s.username.startsWith('@') || s.username.includes(' ') ? s.username : `@${s.username}`}</div>
+                          <button className="btn btn-danger" style={{padding: '4px 8px', fontSize: 12}} onClick={() => removeSpecial(s.username)}>Remove</button>
+                        </div>
+                        <div className="item-sub" style={{background: 'rgba(255,255,255,0.04)', padding: 10, borderRadius: 8, width: '100%', wordBreak: 'break-word', border: '1px solid var(--border-color)'}}>{s.instruction}</div>
+                      </div>
+                    ))}
+                  {specials.filter(s => s.username.toLowerCase().includes(searchTerm.toLowerCase()) || s.instruction.toLowerCase().includes(searchTerm.toLowerCase())).length === 0 && (
+                    <p style={{color: '#a1a1aa'}}>No special users registered matching criteria.</p>
                   )}
                 </div>
               ) : (
@@ -500,31 +532,6 @@ function App() {
                 </div>
               )}
             </>
-          )}
-
-          {activeTab === 'specials' && (
-            <div className="card">
-              <h2><Users size={18}/> Special Users (Overrides)</h2>
-              <div className="input-group">
-                <input type="text" className="input" placeholder="Username or Account Name (e.g. AmiraliNotFound or John Doe)" value={newSpecial.username} onChange={e => setNewSpecial({...newSpecial, username: e.target.value})} />
-              </div>
-              <div className="input-group">
-                <textarea className="input" rows="3" placeholder="Custom persona instructions..." value={newSpecial.instruction} onChange={e => setNewSpecial({...newSpecial, instruction: e.target.value})}></textarea>
-              </div>
-              <button className="btn" style={{width: '100%', marginBottom: 16, justifyContent: 'center'}} onClick={addSpecial}>Add Special User</button>
-
-              <hr style={{borderColor: 'var(--border-color)', margin: '16px 0'}} />
-              
-              {specials.map(s => (
-                <div className="list-item" key={s.username} style={{alignItems: 'flex-start', flexDirection: 'column', gap: 8}}>
-                  <div style={{display:'flex', justifyContent:'space-between', width:'100%'}}>
-                    <div className="item-name">{s.username.startsWith('@') || s.username.includes(' ') ? s.username : `@${s.username}`}</div>
-                    <button className="btn btn-danger" style={{padding: '4px 8px'}} onClick={() => removeSpecial(s.username)}>Remove</button>
-                  </div>
-                  <div className="item-sub" style={{background: 'rgba(255,255,255,0.05)', padding: 8, borderRadius: 6}}>{s.instruction}</div>
-                </div>
-              ))}
-            </div>
           )}
 
           {activeTab === 'broadcast' && (
@@ -657,20 +664,22 @@ function App() {
             {/* Chat control settings */}
             <div className="card" style={{padding: 16, border: '1px solid var(--border-color)', margin: '0 0 20px 0', opacity: 1, transform: 'none'}}>
               <h4 style={{fontSize: 14, marginBottom: 16, color: 'var(--tg-theme-hint-color)', display: 'flex', alignItems: 'center', gap: 6}}>
-                <Settings size={16}/> Override Rules
+                <Settings size={16}/> {selectedChat.type === 'private' ? 'User Override Rules' : 'Override Rules'}
               </h4>
 
               {/* Mute Responses */}
               <div className="flex-row-between" style={{marginBottom: 16}}>
                 <div>
                   <span style={{fontWeight: 600, fontSize: 13}}>Mute Bot Responses</span>
-                  <p style={{fontSize: 11, color: 'var(--tg-theme-hint-color)'}}>Silence all AI responses in this chat.</p>
+                  <p style={{fontSize: 11, color: 'var(--tg-theme-hint-color)'}}>
+                    {selectedChat.type === 'private' ? 'Silence bot replies for this user.' : 'Silence all AI responses in this chat.'}
+                  </p>
                 </div>
                 <label className="toggle-switch">
                   <input 
                     type="checkbox" 
-                    checked={selectedChat.is_muted === 1} 
-                    onChange={(e) => setSelectedChat({...selectedChat, is_muted: e.target.checked ? 1 : 0})}
+                    checked={editMuted} 
+                    onChange={(e) => setEditMuted(e.target.checked)}
                   />
                   <span className="toggle-slider"></span>
                 </label>
@@ -681,18 +690,20 @@ function App() {
                 <div className="flex-row-between">
                   <div>
                     <span style={{fontWeight: 600, fontSize: 13}}>Override Roast Chance</span>
-                    <p style={{fontSize: 11, color: 'var(--tg-theme-hint-color)'}}>Set custom random reply probability.</p>
+                    <p style={{fontSize: 11, color: 'var(--tg-theme-hint-color)'}}>
+                      {selectedChat.type === 'private' ? 'Set custom random reply probability for this user.' : 'Set custom random reply probability.'}
+                    </p>
                   </div>
                   <label className="toggle-switch">
                     <input 
                       type="checkbox" 
-                      checked={overrideRoastChance} 
-                      onChange={(e) => setOverrideRoastChance(e.target.checked)}
+                      checked={editOverrideRoast} 
+                      onChange={(e) => setEditOverrideRoast(e.target.checked)}
                     />
                     <span className="toggle-slider"></span>
                   </label>
                 </div>
-                {overrideRoastChance && (
+                {editOverrideRoast && (
                   <div style={{marginTop: 8}}>
                     <div className="flex-row-between" style={{marginBottom: 4}}>
                       <span style={{fontSize: 11, color: 'var(--tg-theme-hint-color)'}}>Random Reply Chance:</span>
@@ -716,18 +727,20 @@ function App() {
                 <div className="flex-row-between">
                   <div>
                     <span style={{fontWeight: 600, fontSize: 13}}>Override Spam Cooldown</span>
-                    <p style={{fontSize: 11, color: 'var(--tg-theme-hint-color)'}}>Custom rate limit window in seconds.</p>
+                    <p style={{fontSize: 11, color: 'var(--tg-theme-hint-color)'}}>
+                      {selectedChat.type === 'private' ? 'Custom rate limit window in seconds for this user.' : 'Custom rate limit window in seconds.'}
+                    </p>
                   </div>
                   <label className="toggle-switch">
                     <input 
                       type="checkbox" 
-                      checked={overrideCooldown} 
-                      onChange={(e) => setOverrideCooldown(e.target.checked)}
+                      checked={editOverrideCooldown} 
+                      onChange={(e) => setEditOverrideCooldown(e.target.checked)}
                     />
                     <span className="toggle-slider"></span>
                   </label>
                 </div>
-                {overrideCooldown && (
+                {editOverrideCooldown && (
                   <div style={{marginTop: 10}}>
                     <label style={{fontSize: 11, color: 'var(--tg-theme-hint-color)', display: 'block', marginBottom: 4}}>Window Size (Seconds):</label>
                     <input 
@@ -749,12 +762,12 @@ function App() {
             {/* Warn / Broadcast directly to this group */}
             <div className="card" style={{padding: 16, border: '1px solid var(--border-color)', margin: '0 0 20px 0', opacity: 1, transform: 'none'}}>
               <h4 style={{fontSize: 14, marginBottom: 12, color: 'var(--tg-theme-hint-color)', display: 'flex', alignItems: 'center', gap: 6}}>
-                <Megaphone size={16}/> Broadcaster / Send Message
+                <Megaphone size={16}/> {selectedChat.type === 'private' ? 'Direct Messaging / Send Alert' : 'Broadcaster / Send Message'}
               </h4>
               <textarea 
                 className="input" 
                 rows="3" 
-                placeholder="Type warning/alert message... (Supports Markdown)" 
+                placeholder={selectedChat.type === 'private' ? "Type message to send directly to this user..." : "Type warning/alert message... (Supports Markdown)"}
                 value={alertText} 
                 onChange={(e) => setAlertText(e.target.value)}
               />
@@ -764,33 +777,35 @@ function App() {
             </div>
 
             {/* Top Active Users metrics */}
-            <div className="card" style={{padding: 16, border: '1px solid var(--border-color)', margin: '0 0 20px 0', opacity: 1, transform: 'none'}}>
-              <h4 style={{fontSize: 14, marginBottom: 8, color: 'var(--tg-theme-hint-color)', display: 'flex', alignItems: 'center', gap: 6}}>
-                <Users size={16}/> Top Active Users
-              </h4>
-              {loadingTopUsers ? (
-                <div style={{textAlign: 'center', padding: '16px 0'}}><RefreshCcw size={20} className="spinning" /></div>
-              ) : topUsers.length > 0 ? (
-                <div className="top-users-list">
-                  {(() => {
-                    const maxCount = Math.max(...topUsers.map(u => u.count), 1);
-                    return topUsers.map((user, idx) => (
-                      <div className="top-user-item" key={idx}>
-                        <div className="top-user-header">
-                          <span>{user.name}</span>
-                          <span style={{color: '#8b5cf6'}}>{user.count} msgs</span>
+            {selectedChat.type !== 'private' && (
+              <div className="card" style={{padding: 16, border: '1px solid var(--border-color)', margin: '0 0 20px 0', opacity: 1, transform: 'none'}}>
+                <h4 style={{fontSize: 14, marginBottom: 8, color: 'var(--tg-theme-hint-color)', display: 'flex', alignItems: 'center', gap: 6}}>
+                  <Users size={16}/> Top Active Users
+                </h4>
+                {loadingTopUsers ? (
+                  <div style={{textAlign: 'center', padding: '16px 0'}}><RefreshCcw size={20} className="spinning" /></div>
+                ) : topUsers.length > 0 ? (
+                  <div className="top-users-list">
+                    {(() => {
+                      const maxCount = Math.max(...topUsers.map(u => u.count), 1);
+                      return topUsers.map((user, idx) => (
+                        <div className="top-user-item" key={idx}>
+                          <div className="top-user-header">
+                            <span>{user.name}</span>
+                            <span style={{color: '#8b5cf6'}}>{user.count} msgs</span>
+                          </div>
+                          <div className="progress-bar-bg">
+                            <div className="progress-bar-fill" style={{width: `${(user.count / maxCount) * 100}%`}}></div>
+                          </div>
                         </div>
-                        <div className="progress-bar-bg">
-                          <div className="progress-bar-fill" style={{width: `${(user.count / maxCount) * 100}%`}}></div>
-                        </div>
-                      </div>
-                    ));
-                  })()}
-                </div>
-              ) : (
-                <p style={{color: 'var(--tg-theme-hint-color)', fontSize: 12}}>No logged participant activity metrics available.</p>
-              )}
-            </div>
+                      ));
+                    })()}
+                  </div>
+                ) : (
+                  <p style={{color: 'var(--tg-theme-hint-color)', fontSize: 12}}>No logged participant activity metrics available.</p>
+                )}
+              </div>
+            )}
 
             {/* Leave Chat Action */}
             {(selectedChat.type === 'group' || selectedChat.type === 'supergroup') && (

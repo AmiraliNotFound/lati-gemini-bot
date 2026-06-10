@@ -352,7 +352,7 @@ async def tldr_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await database.log_error(config.DB_FILE, "GENAI_ERROR", error_msg, stack)
         await update.message.reply_text("مغزم ارور داد از بس حرف مفت زدین... دفعه بعد 🚶‍♂️")
 
-async def cobalt_fallback_download(url: str, output_path: str) -> bool:
+async def cobalt_fallback_download(url: str, output_path: str) -> tuple[bool, str]:
     import aiohttp
     headers = {
         "Accept": "application/json",
@@ -373,10 +373,11 @@ async def cobalt_fallback_download(url: str, output_path: str) -> bool:
                             if v_resp.status == 200:
                                 with open(output_path, "wb") as f:
                                     f.write(await v_resp.read())
-                                return True
+                                return True, video_url
+                        return False, video_url
     except Exception as e:
         logger.error(f"Cobalt fallback failed: {e}")
-    return False
+    return False, None
 
 def sync_download_video(url: str, output_path: str):
     if not yt_dlp:
@@ -409,48 +410,145 @@ def sync_download_video(url: str, output_path: str):
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         ydl.download([url])
 
+import json
+
+def get_video_metadata(video_path: str) -> dict:
+    cmd = [
+        "ffprobe", "-v", "quiet", "-print_format", "json",
+        "-show_format", "-show_streams", video_path
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+        if result.returncode == 0:
+            data = json.loads(result.stdout)
+            metadata = {}
+            # Format info
+            format_info = data.get("format", {})
+            if "duration" in format_info:
+                metadata["duration"] = int(float(format_info["duration"]))
+            
+            # Stream info
+            for stream in data.get("streams", []):
+                if stream.get("codec_type") == "video":
+                    metadata["width"] = int(stream.get("width", 0))
+                    metadata["height"] = int(stream.get("height", 0))
+                    break
+            return metadata
+    except Exception as e:
+        logger.error(f"Failed to query ffprobe metadata: {e}")
+    return {}
+
+def generate_video_thumbnail(video_path: str, thumbnail_path: str) -> bool:
+    cmd = [
+        "ffmpeg", "-y", "-i", video_path, "-ss", "00:00:01", "-vframes", "1",
+        "-vf", "scale=320:-1", thumbnail_path
+    ]
+    try:
+        result = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+        return result.returncode == 0
+    except Exception as e:
+        logger.error(f"Failed to generate video thumbnail: {e}")
+    return False
+
 async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_TYPE, url: str):
     chat_id = update.message.chat_id
     status_msg = await update.message.reply_text("⏳ دارم ویدیو رو میکشم بیرون... وایسا...")
     
     filename = f"video_{uuid.uuid4().hex}.mp4"
+    thumbnail_filename = f"thumb_{uuid.uuid4().hex}.jpg"
+    
+    async def try_send_video_file(path: str) -> bool:
+        if not os.path.exists(path):
+            return False
+            
+        metadata = await asyncio.to_thread(get_video_metadata, path)
+        duration = metadata.get("duration")
+        width = metadata.get("width")
+        height = metadata.get("height")
+        
+        has_thumb = await asyncio.to_thread(generate_video_thumbnail, path, thumbnail_filename)
+        
+        try:
+            with open(path, 'rb') as video:
+                thumb_file = None
+                if has_thumb and os.path.exists(thumbnail_filename):
+                    thumb_file = open(thumbnail_filename, 'rb')
+                
+                await context.bot.send_video(
+                    chat_id=chat_id,
+                    video=video,
+                    duration=duration,
+                    width=width,
+                    height=height,
+                    thumbnail=thumb_file,
+                    supports_streaming=True,
+                    reply_to_message_id=update.message.message_id
+                )
+                if thumb_file:
+                    thumb_file.close()
+            return True
+        except Exception as send_err:
+            logger.error(f"Failed to send video file: {send_err}")
+            raise send_err
+
     try:
+        # Step 1: Try yt-dlp first
         try:
             await asyncio.to_thread(sync_download_video, url, filename)
             if os.path.exists(filename):
-                with open(filename, 'rb') as video:
-                    await context.bot.send_video(chat_id=chat_id, video=video, reply_to_message_id=update.message.message_id)
-                await status_msg.delete()
-                return
+                file_size = os.path.getsize(filename)
+                if file_size <= 50 * 1024 * 1024:
+                    await try_send_video_file(filename)
+                    await status_msg.delete()
+                    return
+                else:
+                    logger.warning(f"yt-dlp downloaded video exceeds 50MB ({file_size} bytes). Redirecting to link fallback.")
             else:
-                await status_msg.edit_text("❌ نتونستم دانلودش کنم، شاید حجمش زیاده یا پرایوته.")
-        except ImportError:
-            await status_msg.edit_text("❌ قابلیت دانلود فعال نیست! ادمین باید ربات رو دوباره Build کنه.")
-        except Exception as e:
-            error_msg = str(e)
-            stack = traceback.format_exc()
-            logger.error(f"yt-dlp error: {e}")
-            await database.log_error(config.DB_FILE, "YT_DLP_ERROR", error_msg, stack)
-            
-            # Try Cobalt API fallback
-            success = await cobalt_fallback_download(url, filename)
-            if success and os.path.exists(filename):
-                with open(filename, 'rb') as video:
-                    await context.bot.send_video(chat_id=chat_id, video=video, reply_to_message_id=update.message.message_id)
-                await status_msg.delete()
-                return
-    
-            # If everything fails, Instagram is completely blocking the IP without cookies.
-            if "instagram.com" in url:
-                await status_msg.edit_text("❌ اینستاگرام گیر داده! ادمین باید کوکی ست کنه.")
-            else:
-                await status_msg.edit_text("❌ نتونستم دانلودش کنم، یوتوب/اینستا گیر داده.")
-    finally:
-        if os.path.exists(filename):
-            try:
+                logger.warning("yt-dlp sync download did not produce a file.")
+        except Exception as ytdl_err:
+            logger.error(f"yt-dlp failed: {ytdl_err}")
+
+        # Step 2: Try Cobalt Fallback
+        cobalt_stream_url = None
+        try:
+            if os.path.exists(filename):
                 os.remove(filename)
-            except Exception as cleanup_err:
-                logger.error(f"Failed to delete temp video file {filename}: {cleanup_err}")
+                
+            cobalt_success, cobalt_stream_url = await cobalt_fallback_download(url, filename)
+            
+            if cobalt_success and os.path.exists(filename):
+                file_size = os.path.getsize(filename)
+                if file_size <= 50 * 1024 * 1024:
+                    try:
+                        await try_send_video_file(filename)
+                        await status_msg.delete()
+                        return
+                    except Exception:
+                        pass
+            
+            if cobalt_stream_url:
+                await status_msg.edit_text(
+                    f"حجم ویدیو خیلی زیاده یا تلگرام یاری نمی‌کنه! 🚶‍♂️\n"
+                    f"می‌تونی مستقیم از این لینک دانلودش کنی:\n"
+                    f"{cobalt_stream_url}"
+                )
+                return
+        except Exception as cobalt_err:
+            logger.error(f"Cobalt process failed: {cobalt_err}")
+
+        # Step 3: Failure message
+        if "instagram.com" in url:
+            await status_msg.edit_text("❌ اینستاگرام جلوشو گرفت! ادمین باید کوکی ست کنه.")
+        else:
+            await status_msg.edit_text("❌ نتونستم دانلودش کنم، یوتوب/اینستا گیر داده.")
+            
+    finally:
+        for fpath in [filename, thumbnail_filename]:
+            if os.path.exists(fpath):
+                try:
+                    os.remove(fpath)
+                except Exception as cleanup_err:
+                    logger.error(f"Cleanup error for file {fpath}: {cleanup_err}")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Processes message history pipelines, handles text/media targets, and fires requests to GenAI."""
