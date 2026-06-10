@@ -720,7 +720,11 @@ async def download_instagram_post(url: str, cookies_path: str = None) -> tuple[l
                         L.context._session.cookies.set(
                             cookie.name, cookie.value, domain=cookie.domain
                         )
-                csrf = L.context._session.cookies.get('csrftoken')
+                csrf = None
+                for cookie in L.context._session.cookies:
+                    if cookie.name == 'csrftoken':
+                        csrf = cookie.value
+                        break
                 if csrf:
                     L.context._session.headers.update({'X-CSRFToken': csrf})
                 logger.info("Loaded Instagram cookies into instaloader session.")
