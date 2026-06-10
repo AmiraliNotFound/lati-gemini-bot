@@ -1151,9 +1151,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Signal typing interface status
     await context.bot.send_chat_action(chat_id=chat_id, action="typing")
 
-    # Check if this chat has a custom model override
-    custom_model = chat_settings.get("custom_model")
-    model_id = custom_model if custom_model else config.runtime_config["MODEL_ID"]
+    # Read active configurations from DB-synchronized memory cache
+    context_limit = int(config.runtime_config["CONTEXT_LIMIT"])
+    timeout_threshold = float(config.runtime_config["TIMEOUT"])
+    model_id = config.runtime_config["MODEL_ID"]
+
+    # Check if this chat has a custom TTS engine override (edge / gemini)
+    custom_tts_engine = chat_settings.get("custom_tts_engine")
     
     # Check if sender is a special user with a custom instruction
     special_instruction = None
@@ -1271,7 +1275,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if is_voice_request:
             await context.bot.send_chat_action(chat_id=chat_id, action="record_voice")
             
-            tts_engine = config.runtime_config.get("TTS_ENGINE", "edge").lower()
+            tts_engine = custom_tts_engine if custom_tts_engine else config.runtime_config.get("TTS_ENGINE", "edge").lower()
             voice_file = None
             
             if tts_engine == "gemini":

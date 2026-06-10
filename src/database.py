@@ -103,7 +103,8 @@ async def init_db(db_path: str):
             ("is_muted", "INTEGER DEFAULT 0"),
             ("custom_roast_chance", "REAL DEFAULT NULL"),
             ("custom_cooldown", "INTEGER DEFAULT NULL"),
-            ("custom_model", "TEXT DEFAULT NULL")
+            ("custom_model", "TEXT DEFAULT NULL"),
+            ("custom_tts_engine", "TEXT DEFAULT NULL")
         ]
         for col_name, col_type in migration_columns:
             try:
@@ -336,12 +337,12 @@ async def is_chat_muted(db_path: str, chat_id: int) -> bool:
             return row is not None and row[0] == 1
 
 async def get_chat_settings(db_path: str, chat_id: int) -> dict:
-    """Retrieves dynamic settings (roast chance, cooldown, mute status, custom model) for a chat."""
+    """Retrieves dynamic settings (roast chance, cooldown, mute status, tts engine) for a chat."""
     if not os.path.exists(db_path):
         return {}
     async with aiosqlite.connect(db_path) as db:
         async with db.execute(
-            "SELECT custom_roast_chance, custom_cooldown, is_muted, custom_model FROM chat_metadata WHERE chat_id = ?",
+            "SELECT custom_roast_chance, custom_cooldown, is_muted, custom_tts_engine FROM chat_metadata WHERE chat_id = ?",
             (chat_id,)
         ) as cursor:
             row = await cursor.fetchone()
@@ -350,11 +351,11 @@ async def get_chat_settings(db_path: str, chat_id: int) -> dict:
                     "custom_roast_chance": row[0],
                     "custom_cooldown": row[1],
                     "is_muted": row[2],
-                    "custom_model": row[3]
+                    "custom_tts_engine": row[3]
                 }
             return {}
 
-async def update_chat_settings(db_path: str, chat_id: int, is_muted: int = None, custom_roast_chance: float = None, custom_cooldown: int = None, custom_model: str = None):
+async def update_chat_settings(db_path: str, chat_id: int, is_muted: int = None, custom_roast_chance: float = None, custom_cooldown: int = None, custom_tts_engine: str = None):
     """Updates settings for a specific chat."""
     async with aiosqlite.connect(db_path) as db:
         updates = []
@@ -377,12 +378,12 @@ async def update_chat_settings(db_path: str, chat_id: int, is_muted: int = None,
                 updates.append("custom_cooldown = ?")
                 params.append(int(custom_cooldown))
                 
-        if custom_model is not None:
-            if custom_model == "" or custom_model is None:
-                updates.append("custom_model = NULL")
+        if custom_tts_engine is not None:
+            if custom_tts_engine == "" or custom_tts_engine is None:
+                updates.append("custom_tts_engine = NULL")
             else:
-                updates.append("custom_model = ?")
-                params.append(custom_model)
+                updates.append("custom_tts_engine = ?")
+                params.append(custom_tts_engine)
                 
         if updates:
             query = f"UPDATE chat_metadata SET {', '.join(updates)} WHERE chat_id = ?"
@@ -396,7 +397,7 @@ async def get_detailed_chats(db_path: str) -> list:
         return []
     async with aiosqlite.connect(db_path) as db:
         query = '''
-            SELECT chat_id, chat_name, chat_type, msg_count, last_active, is_muted, custom_roast_chance, custom_cooldown, custom_model
+            SELECT chat_id, chat_name, chat_type, msg_count, last_active, is_muted, custom_roast_chance, custom_cooldown, custom_tts_engine
             FROM chat_metadata
             ORDER BY last_active DESC
         '''
@@ -411,7 +412,7 @@ async def get_detailed_chats(db_path: str) -> list:
                 "is_muted": r[5],
                 "custom_roast_chance": r[6],
                 "custom_cooldown": r[7],
-                "custom_model": r[8]
+                "custom_tts_engine": r[8]
             } for r in rows]
 
 async def get_top_chat_users(db_path: str, chat_id: int, limit: int = 5) -> list:

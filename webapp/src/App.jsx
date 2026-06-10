@@ -44,8 +44,8 @@ function App() {
   const [customRoastChanceValue, setCustomRoastChanceValue] = useState(0.02);
   const [customCooldownValue, setCustomCooldownValue] = useState(60);
   const [savingSettings, setSavingSettings] = useState(false);
-  const [editOverrideModel, setEditOverrideModel] = useState(false);
-  const [customModelValue, setCustomModelValue] = useState('');
+  const [editOverrideTts, setEditOverrideTts] = useState(false);
+  const [customTtsEngine, setCustomTtsEngine] = useState('edge');
 
   // Model limits states
   const [modelLimits, setModelLimits] = useState(null);
@@ -88,8 +88,8 @@ function App() {
     setCustomRoastChanceValue(chat.custom_roast_chance !== null ? chat.custom_roast_chance : (config?.RANDOM_ROAST_CHANCE || 0.02));
     setEditOverrideCooldown(chat.custom_cooldown !== null);
     setCustomCooldownValue(chat.custom_cooldown !== null ? chat.custom_cooldown : 60);
-    setEditOverrideModel(chat.custom_model !== null && chat.custom_model !== undefined);
-    setCustomModelValue(chat.custom_model !== null && chat.custom_model !== undefined ? chat.custom_model : '');
+    setEditOverrideTts(chat.custom_tts_engine !== null && chat.custom_tts_engine !== undefined);
+    setCustomTtsEngine(chat.custom_tts_engine || 'edge');
     setAlertText('');
     setTopUsers([]);
     if (chat.type !== 'private') {
@@ -117,7 +117,7 @@ function App() {
         is_muted: editMuted ? 1 : 0,
         custom_roast_chance: editOverrideRoast ? parseFloat(customRoastChanceValue) : null,
         custom_cooldown: editOverrideCooldown ? parseInt(customCooldownValue) : null,
-        custom_model: editOverrideModel ? customModelValue : null
+        custom_tts_engine: editOverrideTts ? customTtsEngine : null
       });
       showToast("Chat settings saved successfully!");
       fetchData(); // Refresh list to get updated setting values
@@ -128,7 +128,7 @@ function App() {
         is_muted: editMuted ? 1 : 0,
         custom_roast_chance: editOverrideRoast ? parseFloat(customRoastChanceValue) : null,
         custom_cooldown: editOverrideCooldown ? parseInt(customCooldownValue) : null,
-        custom_model: editOverrideModel ? customModelValue : null
+        custom_tts_engine: editOverrideTts ? customTtsEngine : null
       }));
     } catch (e) {
       const reason = e.response?.data?.reason || "Failed to save settings.";
@@ -575,7 +575,7 @@ function App() {
                                   {chat.type === 'private' ? 'DM' : chat.type}
                                 </span>
                                 {chat.is_muted === 1 && <span className="badge badge-muted">Muted</span>}
-                                {chat.custom_model && <span className="badge" style={{background: '#8b5cf6', color: '#fff', fontSize: '10px'}}>{chat.custom_model}</span>}
+                                {chat.custom_tts_engine && <span className="badge" style={{background: chat.custom_tts_engine === 'gemini' ? '#8b5cf6' : '#0ea5e9', color: '#fff', fontSize: '10px'}}>{chat.custom_tts_engine === 'gemini' ? '🎙 Gemini' : '🔊 Edge'}</span>}
                               </div>
                               <div className="chat-meta">
                                 <span>ID: {chat.chat_id}</span>
@@ -1125,34 +1125,35 @@ function App() {
                 )}
               </div>
 
-              {/* Model Override */}
+              {/* TTS Engine Override */}
               <div style={{marginBottom: 20}}>
                 <div className="flex-row-between">
                   <div>
-                    <span style={{fontWeight: 600, fontSize: 13}}>Override Model ID</span>
+                    <span style={{fontWeight: 600, fontSize: 13}}>Override TTS Engine</span>
                     <p style={{fontSize: 11, color: 'var(--tg-theme-hint-color)'}}>
-                      Set a custom Gemini model for this specific chat.
+                      Force this chat to use a specific voice engine (overrides global setting).
                     </p>
                   </div>
                   <label className="toggle-switch">
                     <input 
                       type="checkbox" 
-                      checked={editOverrideModel} 
-                      onChange={(e) => setEditOverrideModel(e.target.checked)}
+                      checked={editOverrideTts} 
+                      onChange={(e) => setEditOverrideTts(e.target.checked)}
                     />
                     <span className="toggle-slider"></span>
                   </label>
                 </div>
-                {editOverrideModel && (
+                {editOverrideTts && (
                   <div style={{marginTop: 10}}>
-                    <label style={{fontSize: 11, color: 'var(--tg-theme-hint-color)', display: 'block', marginBottom: 4}}>Model ID / Name:</label>
-                    <input 
-                      type="text" 
-                      className="input" 
-                      placeholder="e.g. gemini-2.5-flash-lite" 
-                      value={customModelValue} 
-                      onChange={(e) => setCustomModelValue(e.target.value)} 
-                    />
+                    <label style={{fontSize: 11, color: 'var(--tg-theme-hint-color)', display: 'block', marginBottom: 6}}>Voice Engine:</label>
+                    <select
+                      className="input"
+                      value={customTtsEngine}
+                      onChange={(e) => setCustomTtsEngine(e.target.value)}
+                    >
+                      <option value="edge">🔊 Edge TTS (Free, Persian)</option>
+                      <option value="gemini">🎙 Gemini TTS (Premium)</option>
+                    </select>
                   </div>
                 )}
               </div>
