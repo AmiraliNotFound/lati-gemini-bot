@@ -101,7 +101,8 @@ function App() {
         custom_cooldown: editOverrideCooldown ? parseInt(customCooldownValue) : null
       }));
     } catch (e) {
-      showToast("Failed to save chat settings.");
+      const reason = e.response?.data?.reason || "Failed to save settings.";
+      showToast(`Error: ${reason}`);
     }
     setSavingSettings(false);
   };
@@ -116,7 +117,8 @@ function App() {
       showToast("Alert sent directly to group!");
       setAlertText('');
     } catch (e) {
-      showToast("Failed to send alert.");
+      const reason = e.response?.data?.reason || "Failed to send alert.";
+      showToast(`Error: ${reason}`);
     }
   };
 
@@ -130,7 +132,8 @@ function App() {
         setSelectedChat(null);
         fetchData();
       } catch (e) {
-        showToast("Failed to leave group.");
+        const reason = e.response?.data?.reason || "Failed to leave group.";
+        showToast(`Error: ${reason}`);
       }
     }
   };
@@ -203,7 +206,8 @@ function App() {
         showToast("Blocked and left successfully!");
         fetchData();
       } catch (e) {
-        showToast("Error blocking chat.");
+        const reason = e.response?.data?.reason || "Failed to block.";
+        showToast(`Error: ${reason}`);
       }
     }
   };
@@ -216,7 +220,8 @@ function App() {
         showToast("Unblocked!");
         fetchData();
       } catch (e) {
-        showToast("Error unblocking.");
+        const reason = e.response?.data?.reason || "Failed to unblock.";
+        showToast(`Error: ${reason}`);
       }
     }
   };
