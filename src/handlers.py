@@ -32,15 +32,15 @@ _user_cooldowns = {}
 COOLDOWN_WINDOW = 60 # seconds
 MAX_REQUESTS_IN_WINDOW = 4
 
-def convert_mp3_to_ogg(mp3_path: str, ogg_path: str):
+def convert_audio_to_ogg(input_path: str, ogg_path: str):
     subprocess.run(
-        ["ffmpeg", "-y", "-i", mp3_path, "-acodec", "libopus", ogg_path],
+        ["ffmpeg", "-y", "-i", input_path, "-acodec", "libopus", ogg_path],
         check=True,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL
     )
 
-async def generate_voice_reply(text: str) -> str:
+async def generate_voice_reply(text: str, voice_name: str = None) -> str:
     """
     Generates a Persian TTS voice reply using edge-tts and converts it to OGG format.
     Returns the file path of the OGG file, or None if it fails.
@@ -48,17 +48,20 @@ async def generate_voice_reply(text: str) -> str:
     if not edge_tts:
         logger.warning("edge-tts not installed, skipping voice generation.")
         return None
+    if not voice_name:
+        voice_name = config.runtime_config.get("TTS_EDGE_VOICE", "fa-IR-FaridNeural")
+        
     mp3_filename = f"tts_{uuid.uuid4().hex}.mp3"
     ogg_filename = f"tts_{uuid.uuid4().hex}.ogg"
     try:
-        # Generate MP3 using edge-tts (neural Persian voice)
-        communicate = edge_tts.Communicate(text, "fa-IR-FaridNeural")
+        # Generate MP3 using edge-tts
+        communicate = edge_tts.Communicate(text, voice_name)
         await communicate.save(mp3_filename)
         # Convert to OGG using ffmpeg
-        await asyncio.to_thread(convert_mp3_to_ogg, mp3_filename, ogg_filename)
+        await asyncio.to_thread(convert_audio_to_ogg, mp3_filename, ogg_filename)
         return ogg_filename
     except Exception as e:
-        logger.error(f"Failed to generate TTS voice reply: {e}")
+        logger.error(f"Failed to generate Edge TTS voice reply: {e}")
         return None
     finally:
         if os.path.exists(mp3_filename):
@@ -66,6 +69,84 @@ async def generate_voice_reply(text: str) -> str:
                 os.remove(mp3_filename)
             except Exception as cleanup_err:
                 logger.error(f"Failed to delete temp tts mp3: {cleanup_err}")
+
+async def generate_gemini_voice_reply(text: str, model_id: str = None, voice_name: str = None) -> str:
+    """
+    Generates a voice reply using Gemini native TTS capabilities.
+    Returns the file path of the OGG audio file, or None if it fails.
+    """
+    if not model_id:
+        model_id = config.runtime_config.get("TTS_GEMINI_MODEL", "gemini-2.5-flash")
+    if not voice_name:
+        voice_name = config.runtime_config.get("TTS_GEMINI_VOICE", "Kore")
+        
+    try:
+        client = get_ai_client()
+        # Call generate_content with AUDIO modality
+        config_params = types.GenerateContentConfig(
+            response_modalities=["AUDIO"],
+            speech_config=types.SpeechConfig(
+                voice_config=types.VoiceConfig(
+                    prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                        voice_name=voice_name
+                    )
+                )
+            )
+        )
+        logger.info(f"Generating Gemini TTS using model {model_id} and voice {voice_name}...")
+        
+        # Call generate_content with a timeout
+        response = await asyncio.wait_for(
+            client.models.generate_content(
+                model=model_id,
+                contents=text,
+                config=config_params
+            ),
+            timeout=10.0
+        )
+        
+        # Extract audio bytes
+        audio_part = None
+        if response.candidates and response.candidates[0].content.parts:
+            for part in response.candidates[0].content.parts:
+                if part.inline_data and part.inline_data.data:
+                    audio_part = part
+                    break
+                    
+        if not audio_part:
+            logger.warning("No audio data returned in Gemini response parts.")
+            return None
+            
+        audio_bytes = audio_part.inline_data.data
+        mime_type = audio_part.inline_data.mime_type or "audio/wav"
+        
+        ext = "wav"
+        if "ogg" in mime_type:
+            ext = "ogg"
+        elif "mp3" in mime_type:
+            ext = "mp3"
+            
+        temp_filename = f"gemini_tts_{uuid.uuid4().hex}.{ext}"
+        ogg_filename = f"gemini_tts_{uuid.uuid4().hex}.ogg"
+        
+        with open(temp_filename, "wb") as f:
+            f.write(audio_bytes)
+            
+        try:
+            await asyncio.to_thread(convert_audio_to_ogg, temp_filename, ogg_filename)
+            return ogg_filename
+        except Exception as conv_err:
+            logger.error(f"Failed to convert Gemini TTS from {ext} to OGG: {conv_err}")
+            return None
+        finally:
+            if os.path.exists(temp_filename):
+                try:
+                    os.remove(temp_filename)
+                except:
+                    pass
+    except Exception as e:
+        logger.error(f"Failed to generate Gemini TTS: {e}")
+        return None
 
 
 # Initialize Google GenAI client lazily to bind correctly to the running event loop
@@ -134,6 +215,11 @@ async def admin_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         help_text = (
             "⚙️ *Admin Configuration Dashboard*\n\n"
             f"• *Model ID:* `{config.runtime_config['MODEL_ID']}`\n"
+            f"• *Fallback Models:* `{config.runtime_config.get('FALLBACK_MODELS', '')}`\n"
+            f"• *TTS Engine:* `{config.runtime_config.get('TTS_ENGINE', 'edge')}`\n"
+            f"• *TTS Gemini Model:* `{config.runtime_config.get('TTS_GEMINI_MODEL', 'gemini-2.5-flash')}`\n"
+            f"• *TTS Gemini Voice:* `{config.runtime_config.get('TTS_GEMINI_VOICE', 'Kore')}`\n"
+            f"• *TTS Edge Voice:* `{config.runtime_config.get('TTS_EDGE_VOICE', 'fa-IR-FaridNeural')}`\n"
             f"• *Context Window:* `{config.runtime_config['CONTEXT_LIMIT']}` messages\n"
             f"• *API Timeout:* `{config.runtime_config['TIMEOUT']}` seconds\n\n"
             f"• *System Instruction Persona:* \n`{config.runtime_config['SYSTEM_INSTRUCTION']}`\n\n"
@@ -337,13 +423,37 @@ async def tldr_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         model_id = config.runtime_config.get("MODEL_ID", "gemini-2.5-flash")
         timeout_threshold = float(config.runtime_config.get("TIMEOUT", 12.0))
         
-        response = await asyncio.wait_for(
-            client.models.generate_content(
-                model=model_id,
-                contents=[prompt]
-            ),
-            timeout=timeout_threshold
-        )
+        fallback_str = config.runtime_config.get("FALLBACK_MODELS", "gemini-2.5-flash-lite,gemini-2.5-flash,gemma-4-31b-it")
+        fallback_list = [m.strip() for m in fallback_str.split(",") if m.strip()]
+        candidate_models = [model_id]
+        for fb in fallback_list:
+            if fb not in candidate_models:
+                candidate_models.append(fb)
+                
+        response = None
+        last_error = None
+        for current_model in candidate_models:
+            try:
+                logger.info(f"Attempting content generation in tldr_handler using model: {current_model}")
+                response = await asyncio.wait_for(
+                    client.models.generate_content(
+                        model=current_model,
+                        contents=[prompt]
+                    ),
+                    timeout=timeout_threshold
+                )
+                logger.info(f"Successfully generated TL;DR with model: {current_model}")
+                break
+            except (Exception, asyncio.TimeoutError) as e:
+                logger.warning(f"Model {current_model} failed in tldr_handler: {e}. Trying fallback models...")
+                last_error = e
+                
+        if response is None:
+            if last_error:
+                raise last_error
+            else:
+                raise ValueError("No models succeeded in tldr_handler.")
+                
         await update.message.reply_text(response.text if response.text else "نتونستم بخونمش، یه جای کار میلنگه.")
     except Exception as e:
         error_msg = str(e)
@@ -728,14 +838,38 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         # 5. Fire Async Client generate_content requests (instantiated lazily)
         client = get_ai_client()
-        response = await asyncio.wait_for(
-            client.models.generate_content(
-                model=model_id,
-                contents=contents,
-                config=types.GenerateContentConfig(system_instruction=system_instruction)
-            ),
-            timeout=timeout_threshold
-        )
+        
+        fallback_str = config.runtime_config.get("FALLBACK_MODELS", "gemini-2.5-flash-lite,gemini-2.5-flash,gemma-4-31b-it")
+        fallback_list = [m.strip() for m in fallback_str.split(",") if m.strip()]
+        candidate_models = [model_id]
+        for fb in fallback_list:
+            if fb not in candidate_models:
+                candidate_models.append(fb)
+                
+        response = None
+        last_error = None
+        for current_model in candidate_models:
+            try:
+                logger.info(f"Attempting content generation in handle_message using model: {current_model}")
+                response = await asyncio.wait_for(
+                    client.models.generate_content(
+                        model=current_model,
+                        contents=contents,
+                        config=types.GenerateContentConfig(system_instruction=system_instruction)
+                    ),
+                    timeout=timeout_threshold
+                )
+                logger.info(f"Successfully generated reply with model: {current_model}")
+                break
+            except (Exception, asyncio.TimeoutError) as e:
+                logger.warning(f"Model {current_model} failed in handle_message: {e}. Trying fallback models...")
+                last_error = e
+                
+        if response is None:
+            if last_error:
+                raise last_error
+            else:
+                raise ValueError("No models succeeded in handle_message.")
         
         bot_response = response.text if response.text else "🗿 بنال ببینم چی میگی..."
         
@@ -748,7 +882,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if is_voice_request:
             await context.bot.send_chat_action(chat_id=chat_id, action="record_voice")
-            voice_file = await generate_voice_reply(bot_response)
+            
+            tts_engine = config.runtime_config.get("TTS_ENGINE", "edge").lower()
+            voice_file = None
+            
+            if tts_engine == "gemini":
+                logger.info("Using Gemini as primary TTS engine...")
+                voice_file = await generate_gemini_voice_reply(bot_response)
+                if not voice_file:
+                    logger.warning("Gemini TTS failed. Falling back to Edge TTS...")
+                    voice_file = await generate_voice_reply(bot_response)
+            else:
+                logger.info("Using Edge TTS as primary TTS engine...")
+                voice_file = await generate_voice_reply(bot_response)
+                
             if voice_file and os.path.exists(voice_file):
                 try:
                     with open(voice_file, 'rb') as vf:

@@ -122,21 +122,16 @@ async def init_db(db_path: str):
         ''')
         await db.commit()
         
-        # Populate config table if empty
-        async with db.execute("SELECT COUNT(*) FROM config") as cursor:
-            count = (await cursor.fetchone())[0]
-            if count == 0:
-                for k, v in DEFAULT_CONFIG.items():
-                    await db.execute("INSERT INTO config (key, value) VALUES (?, ?)", (k, v))
-                await db.commit()
-                logger.info("Database config initialized with default parameters.")
-            else:
-                # Load configuration from database into dynamic config cache
-                async with db.execute("SELECT key, value FROM config") as read_cursor:
-                    rows = await read_cursor.fetchall()
-                    for key, value in rows:
-                        runtime_config[key] = value
-                logger.info("Dynamic config loaded from database.")
+        # Ensure all default configurations exist in database, and load them
+        for k, v in DEFAULT_CONFIG.items():
+            await db.execute("INSERT OR IGNORE INTO config (key, value) VALUES (?, ?)", (k, v))
+        await db.commit()
+        
+        async with db.execute("SELECT key, value FROM config") as read_cursor:
+            rows = await read_cursor.fetchall()
+            for key, value in rows:
+                runtime_config[key] = value
+        logger.info("Dynamic config synchronized and loaded from database.")
 
 async def store_message(db_path: str, chat_id: int, role: str, sender_name: str, text: str):
     """Logs an incoming or outgoing message and prunes history past the threshold."""

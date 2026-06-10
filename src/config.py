@@ -53,8 +53,13 @@ ALLOWED_ADMINS = [username.strip().lower() for username in allowed_admins_env.sp
 # Default fallback values for DB config table
 DEFAULT_CONFIG = {
     "MODEL_ID": "gemini-2.5-flash",  # Upgraded default model for fast & rich multimodal outputs
+    "FALLBACK_MODELS": "gemini-2.5-flash-lite,gemini-2.5-flash,gemma-4-31b-it",
     "CONTEXT_LIMIT": "12",
     "TIMEOUT": "12.0",
+    "TTS_ENGINE": "edge",  # "edge" or "gemini"
+    "TTS_GEMINI_MODEL": "gemini-2.5-flash",
+    "TTS_GEMINI_VOICE": "Kore",
+    "TTS_EDGE_VOICE": "fa-IR-FaridNeural",
     "SYSTEM_INSTRUCTION": (
         "تو یه رفیق صمیمی، فوق‌العاده باحال، حاضر جواب و بشدت تیکه‌انداز هستی که توی یه گپ صمیمی رفقات رو دست می‌ندازی و رنده میکنی. "
         "لحنت اصلاً نباید کتابی، محترمانه یا لوس باشه. کاملاً لاتی، عامیانه و تهرانی صحبت کن. "

@@ -562,6 +562,11 @@ function App() {
                 </div>
 
                 <div className="input-group">
+                  <label>Fallback Model IDs (comma-separated)</label>
+                  <input type="text" className="input" value={config.FALLBACK_MODELS || ''} onChange={e => setConfig({...config, FALLBACK_MODELS: e.target.value})} />
+                </div>
+
+                <div className="input-group">
                   <label>Context Limit</label>
                   <input type="number" className="input" value={config.CONTEXT_LIMIT || ''} onChange={e => setConfig({...config, CONTEXT_LIMIT: e.target.value})} />
                 </div>
@@ -575,6 +580,58 @@ function App() {
                   <label>Random Roast Chance: {config.RANDOM_ROAST_CHANCE}</label>
                   <input type="range" min="0" max="1" step="0.01" className="range-slider" value={config.RANDOM_ROAST_CHANCE || 0} onChange={e => setConfig({...config, RANDOM_ROAST_CHANCE: e.target.value})} />
                 </div>
+
+                <div className="input-group">
+                  <label>TTS Engine</label>
+                  <select 
+                    className="input" 
+                    value={config.TTS_ENGINE || 'edge'} 
+                    onChange={e => setConfig({...config, TTS_ENGINE: e.target.value})}
+                  >
+                    <option value="edge">Microsoft Edge TTS (Free, Natural Persian)</option>
+                    <option value="gemini">Google Gemini TTS (Premium Native Audio)</option>
+                  </select>
+                </div>
+
+                {config.TTS_ENGINE === 'gemini' ? (
+                  <>
+                    <div className="input-group">
+                      <label>Gemini TTS Model ID</label>
+                      <input 
+                        type="text" 
+                        className="input" 
+                        value={config.TTS_GEMINI_MODEL || ''} 
+                        onChange={e => setConfig({...config, TTS_GEMINI_MODEL: e.target.value})} 
+                      />
+                    </div>
+                    <div className="input-group">
+                      <label>Gemini Prebuilt Voice</label>
+                      <select 
+                        className="input" 
+                        value={config.TTS_GEMINI_VOICE || 'Kore'} 
+                        onChange={e => setConfig({...config, TTS_GEMINI_VOICE: e.target.value})}
+                      >
+                        <option value="Kore">Kore (Female, warm)</option>
+                        <option value="Puck">Puck (Male, friendly)</option>
+                        <option value="Fenrir">Fenrir (Male, deep)</option>
+                        <option value="Aoede">Aoede (Female, clear)</option>
+                        <option value="Charon">Charon (Male, soft)</option>
+                      </select>
+                    </div>
+                  </>
+                ) : (
+                  <div className="input-group">
+                    <label>Edge Neural Voice</label>
+                    <select 
+                      className="input" 
+                      value={config.TTS_EDGE_VOICE || 'fa-IR-FaridNeural'} 
+                      onChange={e => setConfig({...config, TTS_EDGE_VOICE: e.target.value})}
+                    >
+                      <option value="fa-IR-FaridNeural">Farid Neural (Male, Colloquial)</option>
+                      <option value="fa-IR-DilaraNeural">Dilara Neural (Female, Formal/Sweet)</option>
+                    </select>
+                  </div>
+                )}
 
                 <div className="input-group">
                   <label>System Persona Prompt</label>
