@@ -1006,7 +1006,8 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
                     caption = caption[:max_caption_len] + "..."
 
                 if caption:
-                    formatted_caption = f"{caption}\n\n🔗 {webpage_url}"
+                    quoted_caption = "\n".join(f">{line}" for line in caption.splitlines())
+                    formatted_caption = f"{quoted_caption}\n\n🔗 {webpage_url}"
                 else:
                     formatted_caption = f"🔗 {webpage_url}"
 
@@ -1159,6 +1160,7 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
                     thumbnail=thumb_file,
                     supports_streaming=True,
                     caption=caption,
+                    parse_mode="Markdown",
                     reply_to_message_id=update.message.message_id
                 )
                 if thumb_file:
@@ -1180,7 +1182,8 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
                     title = video_metadata.get('title', '') if video_metadata else ''
                     webpage_url = video_metadata.get('url', url) if video_metadata else url
                     if title:
-                        yt_caption = f"{title}\n\n🔗 {webpage_url}"
+                        quoted_title = "\n".join(f">{line}" for line in title.splitlines())
+                        yt_caption = f"{quoted_title}\n\n🔗 {webpage_url}"
                     else:
                         yt_caption = f"🔗 {webpage_url}"
                     await try_send_video_file(filename, caption=yt_caption)
