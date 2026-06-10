@@ -4,35 +4,47 @@ A production-grade, highly customizable, and containerized Telegram Bot powered 
 
 The bot is calibrated out-of-the-box with a witty, teasing, and sarcastic Persian persona (Tehrani slang). It supports multimodal processing (images/audio notes) and features automated high-speed media downloader links.
 
----
-
-## ✨ Key Features
+---## ✨ Key Features
 
 ### 1. 🧠 Resilient AI Generation & Failover Stack
 - **Context & Pruning**: Utilizes `aiosqlite` to log message histories and prunes them dynamically based on the configured context limits to keep response latency low.
 - **Group Summary (TL;DR)**: Type `/tldr` in any group to get a snappy, sarcastic Persian summary of the last 150 messages of drama.
 - **Configurable Fallback Models**: Specify your primary `MODEL_ID` (e.g. `gemini-2.5-flash`) and a comma-separated queue of `FALLBACK_MODELS` (e.g. `gemini-2.5-flash-lite,gemini-2.5-flash,gemma-4-31b-it`). If the primary model fails or gets rate-limited, the bot automatically steps down the queue to ensure uninterrupted service.
-- **Adaptive VIP Personas**: Configures custom system instructions for specific users. The bot adapts its roasting persona when interacting with registered VIPs.
+- **Adaptive VIP Personas**: Configures custom system instructions for specific users. The bot adapts its roasting persona when interacting with registered VIPs. Supports inline editing and saving directly inside the Specials list on the web panel.
 
 ### 2. 🎙️ Dual-Engine Text-to-Speech (TTS) & Failover
 - **Microsoft Edge TTS (Free, Natural Persian)**: Generates highly optimized, natural-sounding Persian speech (`fa-IR-FaridNeural` or `fa-IR-DilaraNeural`) offline with zero token costs.
 - **Google Gemini TTS (Premium Native Audio)**: Utilizes Google's generative audio models (e.g., `gemini-2.5-flash-preview-tts`, `gemini-3.1-flash-tts-preview`) to generate expressive, prompt-steerable spoken voice replies.
 - **Raw PCM Audio Decoder**: Automatically detects Gemini's raw `audio/L16` (PCM 24kHz mono) format and configures `ffmpeg` dynamically to convert the raw headerless bytes into high-quality, Telegram-compatible OGG files.
-- **Multi-Model Gemini TTS Loop**: Specify a comma-separated list of Gemini TTS models (e.g. `gemini-2.5-flash-preview-tts,gemini-3.1-flash-tts-preview`). If the primary TTS model is rate-limited or fails, the bot fails over to the next TTS model.
+- **Multi-Model Gemini TTS Loop**: Specify a comma-separated list of Gemini TTS models (e.g. `gemini-2.5-flash-preview-tts`, `gemini-3.1-flash-tts-preview`). If the primary TTS model is rate-limited or fails, the bot fails over to the next TTS model.
 - **Configurable Edge Fallback**: If Gemini TTS fails entirely, the bot checks the `TTS_FALLBACK_TO_EDGE` setting. If enabled (`True`), it automatically falls back to Edge TTS to generate the audio, ensuring the user always receives a voice response.
 
-### 3. 📥 High-Speed Video & Album Downloader with Stream Fallback
+### 3. 📅 Daily Chat Summaries (Scheduler)
+- **Automatic Summary Postings**: A background thread polls every 30 seconds. If `DAILY_SUMMARY_ENABLED` is true, the scheduler automatically generates a teasing Persian summary of today's group chat transcripts using `DAILY_SUMMARY_PROMPT` at the exact time matching `DAILY_SUMMARY_TIME` and posts it to active group chats.
+- **Full Dashboard Control**: Enable summaries, choose the scheduled posting time, and modify the summary generator prompt directly from the admin settings dashboard.
+
+### 4. 🎭 Custom Persona Presets & Chat Overrides
+- **Preset Prompt Library**: Configure multiple system prompt presets (stored as a JSON list in `PERSONA_PRESETS`) directly from the admin settings tab.
+- **Select Dropdown drawer**: Admins can assign group chats specific prompt presets or type a custom unique instruction override (saving to `custom_system_instruction`) inside the Chat drawer. 
+- **Dynamic Priority Logic**: The bot resolves system instructions in the following order: VIP override > Group custom preset > Global default system prompt.
+
+### 5. 📥 High-Speed Video & Album Downloader with Stream Fallback
 - **Inline Previews & Streaming**: Automatically detects Instagram, YouTube, and Twitter/X links in messages. Utilizes `yt-dlp` to download media, queries metadata via `ffprobe` (to extract width, height, and duration), and generates a thumbnail using `ffmpeg`. Re-uploads the file to Telegram enabling instant in-app streaming.
 - **Instagram Carousel & Album Downloader**: Handles multiple-media Instagram posts (photos and videos) and sends them to Telegram in a single Media Group (album format) with rich metadata, including the uploader's username, post caption, and direct link.
 - **Telegram 50MB Bypass**: Telegram Bots are restricted to a **50 MB** maximum file upload limit. If a downloaded video exceeds 50 MB (or if transmission fails), the bot retrieves Cobalt's high-speed CDN direct stream download link and replies to the user with the direct link.
 - **Instagram Scraper Bypass & Impersonation**: If cookies are not configured, the bot automatically utilizes dynamic browser impersonation (e.g. Chrome, Safari on iOS, Firefox, Edge) to mimic real user TLS fingerprints and bypass Instagram's login blocks/CAPTCHAs. If needed, you can still place cookies inside `data/cookies.txt` as a manual override.
 
-### 4. 📊 Admin WebApp Dashboard
+### 6. 💬 DM Support Ticket System & Audio Transcription
+- **Support Inbox**: Users can write `/support <message>` in DMs. The message alongside their details is forwarded to all registered admins.
+- **Admin `/reply` Command**: Admins can easily reply back to any support ticket using `/reply <user_id> <message>` to chat with users.
+- **Audio Transcription**: Users can reply to any voice note with `/transcribe` (or `/transcribe@BotUsername` in groups) to receive a Persian speech-to-text translation.
+
+### 7. 📊 Admin WebApp Dashboard
 A React-based GUI console built directly inside the Telegram interface featuring Dark Mode, glassmorphism design, and smooth slide drawers:
 - **Stats Tab**: View real-time database sizing, active chat metrics, and the 10 most recent scraper/system errors.
-- **Mod Tab**: View all active chats, toggle mute status, set custom roast chances, configure message cooldown windows, and override the Gemini model for specific chats (marked on the dashboard with a custom purple model badge). Includes consolidated VIP/Special User overrides.
+- **Mod Tab**: View all active chats, toggle mute status, set custom roast chances, configure message cooldown windows, override the Gemini model, and select persona presets for specific chats. Includes consolidated VIP/Special User overrides (supporting inline instruction edits).
 - **Cast Tab**: Instantly send broadcast messages to all group chats and users stored in the database.
-- **Conf Tab**: Dynamically configure context windows, API timeouts, system persona prompts, model fallback queues, and TTS engine settings.
+- **Settings Tab**: Dynamically configure context windows, API timeouts, system persona prompts, model fallback queues, TTS engine settings, daily summary schedulers, and custom persona presets.
 
 ---
 
@@ -172,6 +184,10 @@ sudo systemctl start gemini-bot.service
 | `TTS_FALLBACK_TO_EDGE`| `True` | Fallback to Edge TTS if all Gemini TTS models fail (`True` / `False`). |
 | `RANDOM_ROAST_CHANCE` | `0.02` | Probability (0.0 to 1.0) that the bot roasts an unprovoked message. |
 | `SYSTEM_INSTRUCTION` | *(Persian Persona)* | Custom persona settings / default prompt. |
+| `PERSONA_PRESETS` | *(JSON list)* | Dynamic list of quick selectable prompts config. |
+| `DAILY_SUMMARY_ENABLED`| `False` | Toggles scheduled daily chat summaries. |
+| `DAILY_SUMMARY_TIME` | `00:00` | Scheduled time (`HH:MM`) to post summaries. |
+| `DAILY_SUMMARY_PROMPT`| *(Persian Prompt)* | Persona instructions used to generate daily summaries. |
 
 ---
 
@@ -181,9 +197,12 @@ sudo systemctl start gemini-bot.service
 - `/start`: Cheeky greeting message.
 - `/tldr`: Summarizes group chat topics and drama sarcasticly (Persian slang, up to 150 messages).
 - `/ask <question>`: Directly answers a single question using Gemini without using or loading chat history context.
+- `/transcribe`: Convert replied voice notes to Persian text (groups/DMs).
+- `/support <message>`: Initiate a support ticket with the bot administrators (DMs only).
 
-### Admin Inline Commands
+### Admin Commands
 - `/admin`: Displays configuration dashboard metrics.
+- `/reply <user_id> <message>`: Respond to user support tickets.
 - `/admin set_model <model_id>`: Changes primary Gemini model ID.
 - `/admin set_limit <number>`: Sets conversation history context limit.
 - `/admin set_timeout <float>`: Sets AI response generation timeouts.
