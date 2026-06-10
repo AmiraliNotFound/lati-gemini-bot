@@ -7,4 +7,4 @@ aiohttp>=3.9.0
 aiohttp-cors>=0.7.0
 yt-dlp>=2024.04.09
 cryptography>=42.0.0
-gTTS>=2.5.0
+edge-tts>=6.1.9

@@ -13,9 +13,9 @@ except ImportError:
     yt_dlp = None
 
 try:
-    from gtts import gTTS
+    import edge_tts
 except ImportError:
-    gTTS = None
+    edge_tts = None
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import ContextTypes
@@ -32,12 +32,6 @@ _user_cooldowns = {}
 COOLDOWN_WINDOW = 60 # seconds
 MAX_REQUESTS_IN_WINDOW = 4
 
-def generate_tts_sync(text: str, filepath: str):
-    if not gTTS:
-        raise ImportError("gTTS package is not installed")
-    tts = gTTS(text=text, lang='fa')
-    tts.save(filepath)
-
 def convert_mp3_to_ogg(mp3_path: str, ogg_path: str):
     subprocess.run(
         ["ffmpeg", "-y", "-i", mp3_path, "-acodec", "libopus", ogg_path],
@@ -48,16 +42,19 @@ def convert_mp3_to_ogg(mp3_path: str, ogg_path: str):
 
 async def generate_voice_reply(text: str) -> str:
     """
-    Generates a Persian TTS voice reply and converts it to OGG format.
+    Generates a Persian TTS voice reply using edge-tts and converts it to OGG format.
     Returns the file path of the OGG file, or None if it fails.
     """
-    if not gTTS:
-        logger.warning("gTTS not installed, skipping voice generation.")
+    if not edge_tts:
+        logger.warning("edge-tts not installed, skipping voice generation.")
         return None
     mp3_filename = f"tts_{uuid.uuid4().hex}.mp3"
     ogg_filename = f"tts_{uuid.uuid4().hex}.ogg"
     try:
-        await asyncio.to_thread(generate_tts_sync, text, mp3_filename)
+        # Generate MP3 using edge-tts (neural Persian voice)
+        communicate = edge_tts.Communicate(text, "fa-IR-FaridNeural")
+        await communicate.save(mp3_filename)
+        # Convert to OGG using ffmpeg
         await asyncio.to_thread(convert_mp3_to_ogg, mp3_filename, ogg_filename)
         return ogg_filename
     except Exception as e:
