@@ -112,6 +112,7 @@ async def generate_gemini_voice_reply(text: str, voice_name: str = None) -> str:
                 ),
                 timeout=10.0
             )
+            await database.log_api_request(config.DB_FILE, model_id, "tts", "success")
             
             # Extract audio bytes
             audio_part = None
@@ -173,6 +174,7 @@ async def generate_gemini_voice_reply(text: str, voice_name: str = None) -> str:
                     except:
                         pass
         except Exception as e:
+            await database.log_api_request(config.DB_FILE, model_id, "tts", "error")
             logger.warning(f"Gemini TTS generation failed for model {model_id}: {e}")
             last_error = e
             continue
@@ -476,8 +478,10 @@ async def tldr_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     timeout=timeout_threshold
                 )
                 logger.info(f"Successfully generated TL;DR with model: {current_model}")
+                await database.log_api_request(config.DB_FILE, current_model, "text", "success")
                 break
             except (Exception, asyncio.TimeoutError) as e:
+                await database.log_api_request(config.DB_FILE, current_model, "text", "error")
                 logger.warning(f"Model {current_model} failed in tldr_handler: {e}. Trying fallback models...")
                 last_error = e
                 
@@ -893,8 +897,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     timeout=timeout_threshold
                 )
                 logger.info(f"Successfully generated reply with model: {current_model}")
+                await database.log_api_request(config.DB_FILE, current_model, "text", "success")
                 break
             except (Exception, asyncio.TimeoutError) as e:
+                await database.log_api_request(config.DB_FILE, current_model, "text", "error")
                 logger.warning(f"Model {current_model} failed in handle_message: {e}. Trying fallback models...")
                 last_error = e
                 

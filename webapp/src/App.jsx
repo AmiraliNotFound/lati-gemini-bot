@@ -612,6 +612,16 @@ function App() {
                 </div>
 
                 <div className="input-group">
+                  <label>Monitor Gemini TTS RPM Limit</label>
+                  <input type="number" className="input" value={config.MONITOR_LIMIT_TTS_RPM || '15'} onChange={e => setConfig({...config, MONITOR_LIMIT_TTS_RPM: e.target.value})} />
+                </div>
+
+                <div className="input-group">
+                  <label>Monitor Gemini TTS RPD Limit</label>
+                  <input type="number" className="input" value={config.MONITOR_LIMIT_TTS_RPD || '1500'} onChange={e => setConfig({...config, MONITOR_LIMIT_TTS_RPD: e.target.value})} />
+                </div>
+
+                <div className="input-group">
                   <label>Random Roast Chance: {config.RANDOM_ROAST_CHANCE}</label>
                   <input type="range" min="0" max="1" step="0.01" className="range-slider" value={config.RANDOM_ROAST_CHANCE || 0} onChange={e => setConfig({...config, RANDOM_ROAST_CHANCE: e.target.value})} />
                 </div>
@@ -748,6 +758,8 @@ function App() {
               {(() => {
                 const maxRpm = config?.MONITOR_LIMIT_RPM ? parseInt(config.MONITOR_LIMIT_RPM) : 15;
                 const maxRpd = config?.MONITOR_LIMIT_RPD ? parseInt(config.MONITOR_LIMIT_RPD) : 1500;
+                const maxTtsRpm = config?.MONITOR_LIMIT_TTS_RPM ? parseInt(config.MONITOR_LIMIT_TTS_RPM) : 15;
+                const maxTtsRpd = config?.MONITOR_LIMIT_TTS_RPD ? parseInt(config.MONITOR_LIMIT_TTS_RPD) : 1500;
                 return (
                   <>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
@@ -765,32 +777,61 @@ function App() {
                       </div>
                     ) : modelLimits ? (
                       <div>
-                        {/* Live Request usage estimates */}
-                        <div style={{ background: 'rgba(255,255,255,0.02)', borderRadius: 12, padding: 16, border: '1px solid var(--border-color)', marginBottom: 20 }}>
+                        {/* Live Text API Usage */}
+                        <div style={{ background: 'rgba(255,255,255,0.02)', borderRadius: 12, padding: 16, border: '1px solid var(--border-color)', marginBottom: 16 }}>
                           <h3 style={{ fontSize: 13, fontWeight: '700', marginBottom: 12, color: 'var(--tg-theme-text-color)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                            Live Request Usage (Active Quota)
+                            Live Text API Usage (Text Quota)
                           </h3>
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                             <div style={{ background: 'rgba(0,0,0,0.2)', padding: 12, borderRadius: 8, border: '1px solid var(--border-color)' }}>
-                              <div style={{ fontSize: 24, fontWeight: '700', color: modelLimits.usage.last_minute.requests >= maxRpm ? '#ef4444' : '#10b981' }}>
-                                {modelLimits.usage.last_minute.requests} <span style={{ fontSize: 12, color: 'var(--tg-theme-hint-color)', fontWeight: 'normal' }}>/ {maxRpm}</span>
+                              <div style={{ fontSize: 24, fontWeight: '700', color: modelLimits.usage.text.last_minute.requests >= maxRpm ? '#ef4444' : '#10b981' }}>
+                                {modelLimits.usage.text.last_minute.requests} <span style={{ fontSize: 12, color: 'var(--tg-theme-hint-color)', fontWeight: 'normal' }}>/ {maxRpm}</span>
                               </div>
-                              <div style={{ fontSize: 11, color: 'var(--tg-theme-hint-color)', marginTop: 4 }}>RPM (Requests in last 1m)</div>
-                              {modelLimits.usage.last_minute.errors > 0 && (
-                                <div style={{ fontSize: 10, color: '#ef4444', marginTop: 4, fontWeight: '600' }}>⚠️ {modelLimits.usage.last_minute.errors} errors</div>
+                              <div style={{ fontSize: 11, color: 'var(--tg-theme-hint-color)', marginTop: 4 }}>RPM (Last 1m Requests)</div>
+                              {modelLimits.usage.text.last_minute.errors > 0 && (
+                                <div style={{ fontSize: 10, color: '#ef4444', marginTop: 4, fontWeight: '600' }}>⚠️ {modelLimits.usage.text.last_minute.errors} errors</div>
                               )}
                             </div>
                             <div style={{ background: 'rgba(0,0,0,0.2)', padding: 12, borderRadius: 8, border: '1px solid var(--border-color)' }}>
-                              <div style={{ fontSize: 24, fontWeight: '700', color: modelLimits.usage.last_24_hours.requests >= maxRpd ? '#ef4444' : '#3b82f6' }}>
-                                {modelLimits.usage.last_24_hours.requests} <span style={{ fontSize: 12, color: 'var(--tg-theme-hint-color)', fontWeight: 'normal' }}>/ {maxRpd.toLocaleString()}</span>
+                              <div style={{ fontSize: 24, fontWeight: '700', color: modelLimits.usage.text.last_24_hours.requests >= maxRpd ? '#ef4444' : '#3b82f6' }}>
+                                {modelLimits.usage.text.last_24_hours.requests} <span style={{ fontSize: 12, color: 'var(--tg-theme-hint-color)', fontWeight: 'normal' }}>/ {maxRpd.toLocaleString()}</span>
                               </div>
-                              <div style={{ fontSize: 11, color: 'var(--tg-theme-hint-color)', marginTop: 4 }}>RPD (Requests in last 24h)</div>
-                              {modelLimits.usage.last_24_hours.errors > 0 && (
-                                <div style={{ fontSize: 10, color: '#ef4444', marginTop: 4, fontWeight: '600' }}>⚠️ {modelLimits.usage.last_24_hours.errors} errors</div>
+                              <div style={{ fontSize: 11, color: 'var(--tg-theme-hint-color)', marginTop: 4 }}>RPD (Last 24h Requests)</div>
+                              {modelLimits.usage.text.last_24_hours.errors > 0 && (
+                                <div style={{ fontSize: 10, color: '#ef4444', marginTop: 4, fontWeight: '600' }}>⚠️ {modelLimits.usage.text.last_24_hours.errors} errors</div>
                               )}
                             </div>
                           </div>
                         </div>
+
+                        {/* Live TTS Voice API Usage */}
+                        {modelLimits.models.some(m => m.is_tts) && (
+                          <div style={{ background: 'rgba(255,255,255,0.02)', borderRadius: 12, padding: 16, border: '1px solid var(--border-color)', marginBottom: 20 }}>
+                            <h3 style={{ fontSize: 13, fontWeight: '700', marginBottom: 12, color: 'var(--tg-theme-text-color)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                              Live Gemini TTS Voice API Usage (Voice Quota)
+                            </h3>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                              <div style={{ background: 'rgba(0,0,0,0.2)', padding: 12, borderRadius: 8, border: '1px solid var(--border-color)' }}>
+                                <div style={{ fontSize: 24, fontWeight: '700', color: modelLimits.usage.tts.last_minute.requests >= maxTtsRpm ? '#ef4444' : '#10b981' }}>
+                                  {modelLimits.usage.tts.last_minute.requests} <span style={{ fontSize: 12, color: 'var(--tg-theme-hint-color)', fontWeight: 'normal' }}>/ {maxTtsRpm}</span>
+                                </div>
+                                <div style={{ fontSize: 11, color: 'var(--tg-theme-hint-color)', marginTop: 4 }}>RPM (Last 1m Requests)</div>
+                                {modelLimits.usage.tts.last_minute.errors > 0 && (
+                                  <div style={{ fontSize: 10, color: '#ef4444', marginTop: 4, fontWeight: '600' }}>⚠️ {modelLimits.usage.tts.last_minute.errors} errors</div>
+                                )}
+                              </div>
+                              <div style={{ background: 'rgba(0,0,0,0.2)', padding: 12, borderRadius: 8, border: '1px solid var(--border-color)' }}>
+                                <div style={{ fontSize: 24, fontWeight: '700', color: modelLimits.usage.tts.last_24_hours.requests >= maxTtsRpd ? '#ef4444' : '#3b82f6' }}>
+                                  {modelLimits.usage.tts.last_24_hours.requests} <span style={{ fontSize: 12, color: 'var(--tg-theme-hint-color)', fontWeight: 'normal' }}>/ {maxTtsRpd.toLocaleString()}</span>
+                                </div>
+                                <div style={{ fontSize: 11, color: 'var(--tg-theme-hint-color)', marginTop: 4 }}>RPD (Last 24h Requests)</div>
+                                {modelLimits.usage.tts.last_24_hours.errors > 0 && (
+                                  <div style={{ fontSize: 10, color: '#ef4444', marginTop: 4, fontWeight: '600' }}>⚠️ {modelLimits.usage.tts.last_24_hours.errors} errors</div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        )}
 
                         {/* Active Models list */}
                         <h3 style={{ fontSize: 13, fontWeight: '700', marginBottom: 12, color: 'var(--tg-theme-hint-color)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
@@ -798,13 +839,19 @@ function App() {
                         </h3>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                           {modelLimits.models.map((model, idx) => {
-                            const rpmPercent = Math.min(100, (modelLimits.usage.last_minute.requests / model.limits.rpm) * 100);
-                            const rpdPercent = Math.min(100, (modelLimits.usage.last_24_hours.requests / model.limits.rpd) * 100);
+                            const usage = model.is_tts ? modelLimits.usage.tts : modelLimits.usage.text;
+                            const rpmPercent = Math.min(100, (usage.last_minute.requests / model.limits.rpm) * 100);
+                            const rpdPercent = Math.min(100, (usage.last_24_hours.requests / model.limits.rpd) * 100);
 
                             return (
                               <div key={idx} style={{ border: '1px solid var(--border-color)', borderRadius: 12, padding: 16, background: 'rgba(255,255,255,0.01)' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                                  <span style={{ fontWeight: 700, fontSize: 15, color: '#f3f4f6' }}>{model.model_id}</span>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <span style={{ fontWeight: 700, fontSize: 15, color: '#f3f4f6' }}>{model.model_id}</span>
+                                    <span className={`badge ${model.is_tts ? 'badge-group' : 'badge-supergroup'}`} style={{ fontSize: 9 }}>
+                                      {model.is_tts ? 'Voice' : 'Text'}
+                                    </span>
+                                  </div>
                                   <span className={`badge ${model.status === 'active' ? 'badge-dm' : 'badge-blocked'}`}>
                                     {model.status === 'active' ? 'Active' : 'Error'}
                                   </span>
@@ -845,7 +892,7 @@ function App() {
                                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 4 }}>
                                         <span style={{ color: 'var(--tg-theme-hint-color)' }}>RPM Limit Usage:</span>
                                         <span style={{ fontWeight: '600' }}>
-                                          {modelLimits.usage.last_minute.requests} / {model.limits.rpm} RPM
+                                          {usage.last_minute.requests} / {model.limits.rpm} RPM
                                         </span>
                                       </div>
                                       <div className="progress-bar-bg">
@@ -864,7 +911,7 @@ function App() {
                                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 4 }}>
                                         <span style={{ color: 'var(--tg-theme-hint-color)' }}>RPD Limit Usage:</span>
                                         <span style={{ fontWeight: '600' }}>
-                                          {modelLimits.usage.last_24_hours.requests} / {model.limits.rpd} RPD
+                                          {usage.last_24_hours.requests} / {model.limits.rpd} RPD
                                         </span>
                                       </div>
                                       <div className="progress-bar-bg">

@@ -308,12 +308,15 @@ async def get_model_limits(request):
         if m.strip():
             models_in_use.add(m.strip())
             
-    tts_engine = config.runtime_config.get("TTS_ENGINE", "").strip().lower()
-    if tts_engine == "gemini":
-        tts_str = config.runtime_config.get("TTS_GEMINI_MODEL", "")
-        for m in tts_str.split(","):
-            if m.strip():
-                models_in_use.add(m.strip())
+    tts_models = set()
+    tts_str = config.runtime_config.get("TTS_GEMINI_MODEL", "")
+    for m in tts_str.split(","):
+        if m.strip():
+            name = m.strip()
+            models_in_use.add(name)
+            tts_models.add(name)
+            if not name.startswith("models/"):
+                tts_models.add(f"models/{name}")
                 
     # Fetch usage stats from DB
     usage_stats = await database.get_model_usage_stats(config.DB_FILE)
@@ -330,18 +333,16 @@ async def get_model_limits(request):
         limit_rpd = int(config.runtime_config.get("MONITOR_LIMIT_RPD", "1500"))
     except ValueError:
         limit_rpd = 1500
-        
-    STANDARD_RATE_LIMITS = {
-        "gemini-2.5-flash": {"rpm": limit_rpm, "tpm": 1000000, "rpd": limit_rpd},
-        "gemini-2.5-flash-lite": {"rpm": limit_rpm, "tpm": 1000000, "rpd": limit_rpd},
-        "gemini-2.0-flash": {"rpm": limit_rpm, "tpm": 1000000, "rpd": limit_rpd},
-        "gemini-2.0-flash-lite": {"rpm": limit_rpm, "tpm": 1000000, "rpd": limit_rpd},
-        "gemini-1.5-flash": {"rpm": limit_rpm, "tpm": 1000000, "rpd": limit_rpd},
-        "gemini-1.5-flash-8b": {"rpm": limit_rpm, "tpm": 1000000, "rpd": limit_rpd},
-        "gemini-1.5-pro": {"rpm": limit_rpm, "tpm": 32000, "rpd": limit_rpd},
-        "gemini-2.5-pro": {"rpm": limit_rpm, "tpm": 32000, "rpd": limit_rpd}
-    }
-    DEFAULT_LIMITS = {"rpm": limit_rpm, "tpm": 1000000, "rpd": limit_rpd}
+
+    try:
+        limit_tts_rpm = int(config.runtime_config.get("MONITOR_LIMIT_TTS_RPM", "15"))
+    except ValueError:
+        limit_tts_rpm = 15
+
+    try:
+        limit_tts_rpd = int(config.runtime_config.get("MONITOR_LIMIT_TTS_RPD", "1500"))
+    except ValueError:
+        limit_tts_rpd = 1500
     
     models_data = []
     
@@ -352,9 +353,10 @@ async def get_model_limits(request):
         client = None
 
     for model_name in sorted(list(models_in_use)):
-        # Normalize name for limits mapping lookup
-        normalized_name = model_name.replace("models/", "").strip()
-        limits = STANDARD_RATE_LIMITS.get(normalized_name, DEFAULT_LIMITS)
+        is_tts = model_name in tts_models
+        curr_rpm = limit_tts_rpm if is_tts else limit_rpm
+        curr_rpd = limit_tts_rpd if is_tts else limit_rpd
+        limits = {"rpm": curr_rpm, "tpm": 1000000, "rpd": curr_rpd}
         
         if not client:
             models_data.append({
@@ -364,6 +366,7 @@ async def get_model_limits(request):
                 "input_token_limit": None,
                 "output_token_limit": None,
                 "status": "error",
+                "is_tts": is_tts,
                 "error": "API Key or client initialization failed.",
                 "limits": limits
             })
@@ -379,6 +382,7 @@ async def get_model_limits(request):
                 "input_token_limit": getattr(info, "input_token_limit", None),
                 "output_token_limit": getattr(info, "output_token_limit", None),
                 "status": "active",
+                "is_tts": is_tts,
                 "error": None,
                 "limits": limits
             })
@@ -394,6 +398,7 @@ async def get_model_limits(request):
                         "input_token_limit": getattr(info, "input_token_limit", None),
                         "output_token_limit": getattr(info, "output_token_limit", None),
                         "status": "active",
+                        "is_tts": is_tts,
                         "error": None,
                         "limits": limits
                     })
@@ -408,6 +413,7 @@ async def get_model_limits(request):
                 "input_token_limit": None,
                 "output_token_limit": None,
                 "status": "error",
+                "is_tts": is_tts,
                 "error": str(e),
                 "limits": limits
             })

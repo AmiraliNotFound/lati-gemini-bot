@@ -120,6 +120,16 @@ async def init_db(db_path: str):
                 stack_trace TEXT
             )
         ''')
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS api_requests_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                model_id TEXT,
+                request_type TEXT,
+                status TEXT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_requests_timestamp ON api_requests_log(timestamp);")
         await db.commit()
         
         # Ensure all default configurations exist in database, and load them
@@ -413,40 +423,84 @@ async def get_top_chat_users(db_path: str, chat_id: int, limit: int = 5) -> list
 
 
 async def get_model_usage_stats(db_path: str) -> dict:
-    """Calculates model request rates (RPM and RPD estimates) from messages and error logs."""
+    """Calculates model request rates (RPM and RPD estimates) from api_requests_log."""
     stats = {
-        "last_minute": {"requests": 0, "errors": 0},
-        "last_24_hours": {"requests": 0, "errors": 0}
+        "text": {
+            "last_minute": {"requests": 0, "errors": 0},
+            "last_24_hours": {"requests": 0, "errors": 0}
+        },
+        "tts": {
+            "last_minute": {"requests": 0, "errors": 0},
+            "last_24_hours": {"requests": 0, "errors": 0}
+        }
     }
     if not os.path.exists(db_path):
         return stats
         
     async with aiosqlite.connect(db_path) as db:
-        # 1. Last minute requests (successful generations)
-        async with db.execute(
-            "SELECT COUNT(*) FROM messages WHERE role = 'model' AND timestamp >= datetime('now', '-1 minute')"
-        ) as cursor:
-            stats["last_minute"]["requests"] = (await cursor.fetchone())[0]
-            
-        # 2. Last minute errors
-        async with db.execute(
-            "SELECT COUNT(*) FROM error_logs WHERE timestamp >= datetime('now', '-1 minute')"
-        ) as cursor:
-            stats["last_minute"]["errors"] = (await cursor.fetchone())[0]
-            
-        # 3. Last 24 hours requests
-        async with db.execute(
-            "SELECT COUNT(*) FROM messages WHERE role = 'model' AND timestamp >= datetime('now', '-24 hours')"
-        ) as cursor:
-            stats["last_24_hours"]["requests"] = (await cursor.fetchone())[0]
-            
-        # 4. Last 24 hours errors
-        async with db.execute(
-            "SELECT COUNT(*) FROM error_logs WHERE timestamp >= datetime('now', '-24 hours')"
-        ) as cursor:
-            stats["last_24_hours"]["errors"] = (await cursor.fetchone())[0]
+        # Text RPM (requests & errors)
+        try:
+            async with db.execute(
+                "SELECT COUNT(*) FROM api_requests_log WHERE request_type = 'text' AND status = 'success' AND timestamp >= datetime('now', '-1 minute')"
+            ) as cursor:
+                stats["text"]["last_minute"]["requests"] = (await cursor.fetchone())[0]
+            async with db.execute(
+                "SELECT COUNT(*) FROM api_requests_log WHERE request_type = 'text' AND status = 'error' AND timestamp >= datetime('now', '-1 minute')"
+            ) as cursor:
+                stats["text"]["last_minute"]["errors"] = (await cursor.fetchone())[0]
+
+            # Text RPD (requests & errors)
+            async with db.execute(
+                "SELECT COUNT(*) FROM api_requests_log WHERE request_type = 'text' AND status = 'success' AND timestamp >= datetime('now', '-24 hours')"
+            ) as cursor:
+                stats["text"]["last_24_hours"]["requests"] = (await cursor.fetchone())[0]
+            async with db.execute(
+                "SELECT COUNT(*) FROM api_requests_log WHERE request_type = 'text' AND status = 'error' AND timestamp >= datetime('now', '-24 hours')"
+            ) as cursor:
+                stats["text"]["last_24_hours"]["errors"] = (await cursor.fetchone())[0]
+
+            # TTS RPM (requests & errors)
+            async with db.execute(
+                "SELECT COUNT(*) FROM api_requests_log WHERE request_type = 'tts' AND status = 'success' AND timestamp >= datetime('now', '-1 minute')"
+            ) as cursor:
+                stats["tts"]["last_minute"]["requests"] = (await cursor.fetchone())[0]
+            async with db.execute(
+                "SELECT COUNT(*) FROM api_requests_log WHERE request_type = 'tts' AND status = 'error' AND timestamp >= datetime('now', '-1 minute')"
+            ) as cursor:
+                stats["tts"]["last_minute"]["errors"] = (await cursor.fetchone())[0]
+
+            # TTS RPD (requests & errors)
+            async with db.execute(
+                "SELECT COUNT(*) FROM api_requests_log WHERE request_type = 'tts' AND status = 'success' AND timestamp >= datetime('now', '-24 hours')"
+            ) as cursor:
+                stats["tts"]["last_24_hours"]["requests"] = (await cursor.fetchone())[0]
+            async with db.execute(
+                "SELECT COUNT(*) FROM api_requests_log WHERE request_type = 'tts' AND status = 'error' AND timestamp >= datetime('now', '-24 hours')"
+            ) as cursor:
+                stats["tts"]["last_24_hours"]["errors"] = (await cursor.fetchone())[0]
+        except aiosqlite.OperationalError:
+            # Fallback if table doesn't exist yet
+            pass
             
     return stats
+
+
+async def log_api_request(db_path: str, model_id: str, request_type: str, status: str):
+    """Logs a Gemini API call for request rate monitoring."""
+    try:
+        async with aiosqlite.connect(db_path) as db:
+            await db.execute(
+                "INSERT INTO api_requests_log (model_id, request_type, status) VALUES (?, ?, ?)",
+                (model_id, request_type, status)
+            )
+            # Prune logs older than 7 days to keep database size small
+            await db.execute(
+                "DELETE FROM api_requests_log WHERE timestamp < datetime('now', '-7 days')"
+            )
+            await db.commit()
+    except Exception as e:
+        logger.error(f"Failed to log API request: {e}")
+
 
 
 
