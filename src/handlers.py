@@ -338,7 +338,7 @@ async def ask_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Determine System Instruction
     system_instruction = config.runtime_config.get("SYSTEM_INSTRUCTION", "")
-    timeout_threshold = config.runtime_config.get("API_TIMEOUT", 10.0)
+    timeout_threshold = float(config.runtime_config.get("TIMEOUT", 10.0))
     
     # Build content prompt (No history!)
     contents = [
@@ -1374,7 +1374,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Read active configurations from DB-synchronized memory cache
     context_limit = int(config.runtime_config["CONTEXT_LIMIT"])
     timeout_threshold = float(config.runtime_config["TIMEOUT"])
-    model_id = config.runtime_config["MODEL_ID"]
+    
+    custom_model = chat_settings.get("custom_model")
+    model_id = custom_model if custom_model else config.runtime_config["MODEL_ID"]
 
     # Check if this chat has a custom TTS engine override (edge / gemini)
     custom_tts_engine = chat_settings.get("custom_tts_engine")

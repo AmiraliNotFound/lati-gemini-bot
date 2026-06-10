@@ -138,6 +138,7 @@ async def update_chat_settings_handler(request):
     custom_roast_chance = data.get("custom_roast_chance")
     custom_cooldown = data.get("custom_cooldown")
     custom_tts_engine = data.get("custom_tts_engine")
+    custom_model = data.get("custom_model")
 
     await database.update_chat_settings(
         config.DB_FILE,
@@ -145,7 +146,8 @@ async def update_chat_settings_handler(request):
         is_muted=is_muted,
         custom_roast_chance=custom_roast_chance,
         custom_cooldown=custom_cooldown,
-        custom_tts_engine=custom_tts_engine
+        custom_tts_engine=custom_tts_engine,
+        custom_model=custom_model
     )
     return web.json_response({"status": "success"})
 

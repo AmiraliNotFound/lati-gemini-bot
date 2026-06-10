@@ -46,6 +46,8 @@ function App() {
   const [savingSettings, setSavingSettings] = useState(false);
   const [editOverrideTts, setEditOverrideTts] = useState(false);
   const [customTtsEngine, setCustomTtsEngine] = useState('edge');
+  const [editOverrideModel, setEditOverrideModel] = useState(false);
+  const [customModel, setCustomModel] = useState('');
 
   // Model limits states
   const [modelLimits, setModelLimits] = useState(null);
@@ -101,6 +103,8 @@ function App() {
     setCustomCooldownValue(chat.custom_cooldown !== null ? chat.custom_cooldown : 60);
     setEditOverrideTts(chat.custom_tts_engine !== null && chat.custom_tts_engine !== undefined);
     setCustomTtsEngine(chat.custom_tts_engine || 'edge');
+    setEditOverrideModel(chat.custom_model !== null && chat.custom_model !== undefined);
+    setCustomModel(chat.custom_model || '');
     setAlertText('');
     setTopUsers([]);
     if (chat.type !== 'private') {
@@ -128,7 +132,8 @@ function App() {
         is_muted: editMuted ? 1 : 0,
         custom_roast_chance: editOverrideRoast ? parseFloat(customRoastChanceValue) : null,
         custom_cooldown: editOverrideCooldown ? parseInt(customCooldownValue) : null,
-        custom_tts_engine: editOverrideTts ? customTtsEngine : null
+        custom_tts_engine: editOverrideTts ? customTtsEngine : null,
+        custom_model: editOverrideModel ? customModel : null
       });
       showToast("Chat settings saved successfully!");
       fetchData(); // Refresh list to get updated setting values
@@ -139,7 +144,8 @@ function App() {
         is_muted: editMuted ? 1 : 0,
         custom_roast_chance: editOverrideRoast ? parseFloat(customRoastChanceValue) : null,
         custom_cooldown: editOverrideCooldown ? parseInt(customCooldownValue) : null,
-        custom_tts_engine: editOverrideTts ? customTtsEngine : null
+        custom_tts_engine: editOverrideTts ? customTtsEngine : null,
+        custom_model: editOverrideModel ? customModel : null
       }));
     } catch (e) {
       const reason = e.response?.data?.reason || "Failed to save settings.";
@@ -587,6 +593,7 @@ function App() {
                                 </span>
                                 {chat.is_muted === 1 && <span className="badge badge-muted">Muted</span>}
                                 {chat.custom_tts_engine && <span className="badge" style={{background: chat.custom_tts_engine === 'gemini' ? '#8b5cf6' : '#0ea5e9', color: '#fff', fontSize: '10px'}}>{chat.custom_tts_engine === 'gemini' ? '🎙 Gemini' : '🔊 Edge'}</span>}
+                                {chat.custom_model && <span className="badge" style={{background: '#a855f7', color: '#fff', fontSize: '10px'}}>🤖 {chat.custom_model}</span>}
                               </div>
                               <div className="chat-meta">
                                 <span>ID: {chat.chat_id}</span>
@@ -1041,6 +1048,7 @@ function App() {
                 {selectedChat.type === 'private' ? 'DM' : selectedChat.type}
               </span>
               {selectedChat.is_muted === 1 && <span className="badge badge-muted">Muted</span>}
+              {selectedChat.custom_model && <span className="badge" style={{background: '#a855f7', color: '#fff', fontSize: '10px'}}>🤖 {selectedChat.custom_model}</span>}
               <span className="badge" style={{background: 'rgba(255,255,255,0.06)', color: 'var(--tg-theme-hint-color)'}}>
                 {selectedChat.msg_count} Messages
               </span>
@@ -1168,6 +1176,38 @@ function App() {
                       <option value="edge">🔊 Edge TTS (Free, Persian)</option>
                       <option value="gemini">🎙 Gemini TTS (Premium)</option>
                     </select>
+                  </div>
+                )}
+              </div>
+
+              {/* Model Override */}
+              <div style={{marginBottom: 20}}>
+                <div className="flex-row-between">
+                  <div>
+                    <span style={{fontWeight: 600, fontSize: 13}}>Override Gemini Model</span>
+                    <p style={{fontSize: 11, color: 'var(--tg-theme-hint-color)'}}>
+                      Force this chat to use a specific AI model (overrides global setting).
+                    </p>
+                  </div>
+                  <label className="toggle-switch">
+                    <input 
+                      type="checkbox" 
+                      checked={editOverrideModel} 
+                      onChange={(e) => setEditOverrideModel(e.target.checked)}
+                    />
+                    <span className="toggle-slider"></span>
+                  </label>
+                </div>
+                {editOverrideModel && (
+                  <div style={{marginTop: 10}}>
+                    <label style={{fontSize: 11, color: 'var(--tg-theme-hint-color)', display: 'block', marginBottom: 6}}>Model ID:</label>
+                    <input 
+                      type="text" 
+                      className="input" 
+                      placeholder="e.g. gemini-2.5-pro" 
+                      value={customModel} 
+                      onChange={(e) => setCustomModel(e.target.value)} 
+                    />
                   </div>
                 )}
               </div>
