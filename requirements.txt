@@ -9,3 +9,4 @@ yt-dlp>=2024.04.09
 cryptography>=42.0.0
 edge-tts>=6.1.9
 curl-cffi>=0.10.0,<0.15.0
+instaloader>=4.10

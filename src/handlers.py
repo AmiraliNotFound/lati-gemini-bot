@@ -675,37 +675,136 @@ def generate_video_thumbnail(video_path: str, thumbnail_path: str) -> bool:
 
 async def download_instagram_post(url: str, cookies_path: str = None) -> tuple[list[dict], dict]:
     """
-    Extracts all media from an Instagram URL.
+    Downloads all media from an Instagram post/carousel.
+    Strategy:
+      1. Try instaloader (native Instagram library — handles images natively)
+      2. Fall back to yt-dlp (mainly works for video-only posts / reels)
     Returns: (list_of_items, metadata_dict)
-    where list_of_items is [{'path': '...', 'type': 'photo'|'video'}]
-    and metadata_dict is {'uploader': '...', 'caption': '...', 'webpage_url': '...'}
+      list_of_items: [{'path': '...', 'type': 'photo'|'video'}]
+      metadata_dict: {'uploader': '...', 'caption': '...', 'webpage_url': '...'}
     """
     import aiohttp
+    import re
+    import http.cookiejar
+
+    # Extract clean shortcode from any Instagram URL variant
+    shortcode_match = re.search(r'instagram\.com/(?:p|reel|tv|reels)/([A-Za-z0-9_-]+)', url)
+    if not shortcode_match:
+        raise ValueError(f"Could not extract Instagram shortcode from URL: {url}")
+    shortcode = shortcode_match.group(1)
+    clean_url = f"https://www.instagram.com/p/{shortcode}/"
+
+    # ---------------------------------------------------------------
+    # Method 1: instaloader — the right tool for Instagram images
+    # ---------------------------------------------------------------
+    try:
+        import instaloader
+
+        L = instaloader.Instaloader(
+            download_videos=True,
+            download_pictures=True,
+            save_metadata=False,
+            download_comments=False,
+            download_geotags=False,
+            quiet=True,
+            dirname_pattern='/tmp',  # We manage filenames ourselves
+        )
+
+        # Inject Netscape cookies into instaloader's requests session
+        if cookies_path and os.path.exists(cookies_path):
+            try:
+                cj = http.cookiejar.MozillaCookieJar()
+                cj.load(cookies_path, ignore_discard=True, ignore_expires=True)
+                for cookie in cj:
+                    if 'instagram.com' in cookie.domain:
+                        L.context._session.cookies.set(
+                            cookie.name, cookie.value, domain=cookie.domain
+                        )
+                csrf = L.context._session.cookies.get('csrftoken')
+                if csrf:
+                    L.context._session.headers.update({'X-CSRFToken': csrf})
+                logger.info("Loaded Instagram cookies into instaloader session.")
+            except Exception as ce:
+                logger.warning(f"Could not inject cookies into instaloader: {ce}")
+
+        # Fetch post metadata (synchronous, run in thread)
+        post = await asyncio.to_thread(
+            instaloader.Post.from_shortcode, L.context, shortcode
+        )
+
+        metadata = {
+            'uploader': post.owner_username,
+            'caption': post.caption or '',
+            'webpage_url': clean_url
+        }
+
+        # Build list of (url, type) pairs for each media item
+        media_list = []
+        if post.typename == 'GraphSidecar':
+            # Carousel — multiple images/videos
+            nodes = await asyncio.to_thread(lambda: list(post.get_sidecar_nodes()))
+            for node in nodes:
+                if node.is_video:
+                    media_list.append({'url': node.video_url, 'type': 'video'})
+                else:
+                    media_list.append({'url': node.display_url, 'type': 'photo'})
+        elif post.is_video:
+            media_list.append({'url': post.video_url, 'type': 'video'})
+        else:
+            # Single image post
+            media_list.append({'url': post.url, 'type': 'photo'})
+
+        # Download all media files via aiohttp
+        items = []
+        dl_headers = {
+            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+            'Referer': 'https://www.instagram.com/',
+        }
+        timeout = aiohttp.ClientTimeout(total=60)
+        async with aiohttp.ClientSession() as session:
+            for idx, media in enumerate(media_list):
+                ext = '.mp4' if media['type'] == 'video' else '.jpg'
+                filename = f"ig_item_{idx}_{uuid.uuid4().hex}{ext}"
+                try:
+                    async with session.get(media['url'], headers=dl_headers, timeout=timeout) as resp:
+                        if resp.status == 200:
+                            with open(filename, 'wb') as f:
+                                f.write(await resp.read())
+                            items.append({'path': filename, 'type': media['type']})
+                        else:
+                            logger.warning(f"Instagram media {idx} HTTP {resp.status}")
+                except Exception as dl_err:
+                    logger.error(f"Failed to download Instagram media {idx}: {dl_err}")
+
+        if items:
+            logger.info(f"instaloader successfully downloaded {len(items)} item(s) from {shortcode}")
+            return items, metadata
+
+        raise ValueError("instaloader extracted post but no media items were downloadable.")
+
+    except ImportError:
+        logger.info("instaloader not installed — falling back to yt-dlp")
+    except Exception as il_err:
+        logger.warning(f"instaloader failed for {shortcode}: {il_err} — falling back to yt-dlp")
+
+    # ---------------------------------------------------------------
+    # Method 2: yt-dlp fallback (works for video reels, may fail for images)
+    # ---------------------------------------------------------------
     if not yt_dlp:
-        raise ImportError("yt_dlp is not installed")
+        raise ImportError("Neither instaloader nor yt_dlp is available")
 
-    # Clean URL
-    url = url.split("?")[0]
-
-    # Configure yt-dlp options
     ydl_opts_base = {
         'extract_flat': False,
         'skip_download': True,
         'quiet': True,
         'no_warnings': True,
-        # Critical: Instagram carousels can have image-only entries that have no video formats.
-        # ignore_no_formats_error prevents a hard crash on those entries.
         'ignore_no_formats_error': True,
     }
-
     if cookies_path and os.path.exists(cookies_path):
         ydl_opts_base['cookiefile'] = cookies_path
 
-    # Build ordered list of impersonation targets to try.
-    # When cookies are present we attempt no-impersonation first, then fall back
-    # to impersonation targets in case Instagram still rate-limits / blocks.
     if cookies_path and os.path.exists(cookies_path):
-        targets = [None, 'chrome-131:android-14', 'safari-18.0:ios-18.0', 'chrome-110:windows-10']
+        targets = [None, 'chrome-131:android-14', 'safari-18.0:ios-18.0']
     else:
         targets = ['chrome-131:android-14', 'safari-18.0:ios-18.0', 'chrome-110:windows-10', 'chrome']
 
@@ -717,88 +816,57 @@ async def download_instagram_post(url: str, cookies_path: str = None) -> tuple[l
             if target and ImpersonateTarget:
                 ydl_opts['impersonate'] = ImpersonateTarget.from_str(target)
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = await asyncio.to_thread(ydl.extract_info, url, download=False)
+                info = await asyncio.to_thread(ydl.extract_info, clean_url, download=False)
             if info:
                 break
         except Exception as e:
             last_err = e
-            logger.warning(f"Download_instagram_post extraction with target {target} failed: {e}")
+            logger.warning(f"yt-dlp Instagram extraction (target={target}) failed: {e}")
 
     if not info:
-        if last_err:
-            raise last_err
-        raise ValueError("Could not extract metadata from Instagram post.")
+        raise last_err or ValueError("yt-dlp could not extract Instagram post metadata.")
 
-    # Extract metadata
     metadata = {
         'uploader': info.get('uploader') or info.get('uploader_id') or 'unknown',
         'caption': info.get('description') or info.get('title') or '',
-        'webpage_url': info.get('webpage_url') or url
+        'webpage_url': info.get('webpage_url') or clean_url
     }
 
-    items = []
-    entries = []
-    if info.get('_type') == 'playlist' or 'entries' in info:
-        entries = info.get('entries') or []
-    else:
-        entries = [info]
+    entries = info.get('entries') or ([info] if info.get('_type') != 'playlist' else [])
 
+    items = []
     async with aiohttp.ClientSession() as session:
         for idx, entry in enumerate(entries):
-            # 1. Try direct URL from the entry itself
             media_url = entry.get('url')
-
-            # 2. Try best format URL
             if not media_url and entry.get('formats'):
-                formats = entry.get('formats')
-                if formats:
-                    media_url = formats[-1].get('url')
-
-            # 3. Fallback: Instagram image-only entries expose the full-res image
-            #    via the 'thumbnails' list (highest resolution is the last one).
-            #    This is the critical path for image posts & image slides in carousels.
+                media_url = (entry['formats'] or [{}])[-1].get('url')
             if not media_url:
                 thumbnails = entry.get('thumbnails') or []
                 if thumbnails:
-                    # Last thumbnail is typically highest resolution
                     media_url = thumbnails[-1].get('url')
-
             if not media_url:
-                logger.debug(f"Skipping carousel entry {idx}: no media URL found")
+                logger.debug(f"No media URL for entry {idx}, skipping.")
                 continue
 
-            # Determine media type
-            ext = entry.get('ext') or ''
-            media_type = 'photo'
             vcodec = entry.get('vcodec') or 'none'
-            if ext in ['mp4', 'mkv', 'webm', 'mov'] or (vcodec != 'none' and vcodec):
-                media_type = 'video'
-            # Also detect by URL pattern as a final check
-            if '.mp4' in media_url.lower() or 'video' in media_url.lower():
-                media_type = 'video'
-
-            if media_type == 'video':
-                filename = f"ig_item_{idx}_{uuid.uuid4().hex}.mp4"
-            else:
-                filename = f"ig_item_{idx}_{uuid.uuid4().hex}.jpg"
+            ext = entry.get('ext') or ''
+            media_type = 'video' if (ext in ['mp4', 'mkv', 'webm'] or (vcodec and vcodec != 'none') or '.mp4' in media_url.lower()) else 'photo'
+            filename = f"ig_item_{idx}_{uuid.uuid4().hex}.{'mp4' if media_type == 'video' else 'jpg'}"
 
             try:
-                headers = {
+                dl_headers = {
                     'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1'
                 }
                 timeout = aiohttp.ClientTimeout(total=45)
-                async with session.get(media_url, headers=headers, timeout=timeout) as resp:
+                async with session.get(media_url, headers=dl_headers, timeout=timeout) as resp:
                     if resp.status == 200:
                         with open(filename, 'wb') as f:
                             f.write(await resp.read())
-                        items.append({
-                            'path': filename,
-                            'type': media_type
-                        })
+                        items.append({'path': filename, 'type': media_type})
                     else:
-                        logger.warning(f"Carousel item {idx} HTTP {resp.status} for URL: {media_url[:80]}")
+                        logger.warning(f"yt-dlp entry {idx} HTTP {resp.status}")
             except Exception as dl_err:
-                logger.error(f"Failed to download carousel item {idx}: {dl_err}")
+                logger.error(f"Failed to download yt-dlp entry {idx}: {dl_err}")
 
     return items, metadata
 
@@ -947,7 +1015,17 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
                 await status_msg.delete()
                 return
         except Exception as ig_err:
-            logger.warning(f"Instagram dedicated downloader failed: {ig_err}. Falling back to standard loop.")
+            logger.warning(f"Instagram dedicated downloader failed: {ig_err}")
+            # For Instagram links, NEVER fall through to the generic video downloader —
+            # it uses yt-dlp which cannot handle image posts and would produce the same error.
+            # Instead, inform the user directly.
+            await status_msg.edit_text(
+                "❌ نتونستم این پست اینستاگرامو بگیرم.\n\n"
+                "📸 اگه پست عکسه و خصوصی نیست، ممکنه مشکل از کوکی‌ها باشه — "
+                "از بخش *Conf* پنل ادمین کوکی‌های جدید آپلود کن.",
+                parse_mode="Markdown"
+            )
+            return
     
     async def try_send_video_file(path: str) -> bool:
         if not os.path.exists(path):
