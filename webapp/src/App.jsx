@@ -689,7 +689,24 @@ function App() {
                           <div className="list-item" key={chat.chat_id} style={{padding: '16px 0'}}>
                             <div className="item-info" style={{flex: 1, marginRight: 12}}>
                               <div className="item-name" style={{display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6}}>
-                                {chat.name}
+                                {chat.type === 'private' ? (
+                                  <a 
+                                    href={`tg://user?id=${chat.chat_id}`} 
+                                    onClick={(e) => {
+                                      if (window.Telegram?.WebApp?.openTelegramLink) {
+                                        e.preventDefault();
+                                        window.Telegram.WebApp.openTelegramLink(`tg://user?id=${chat.chat_id}`);
+                                      }
+                                    }}
+                                    style={{color: 'var(--tg-theme-link-color)', textDecoration: 'none', fontWeight: 'bold'}}
+                                    onMouseEnter={(e) => e.target.style.textDecoration = 'underline'}
+                                    onMouseLeave={(e) => e.target.style.textDecoration = 'none'}
+                                  >
+                                    {chat.name}
+                                  </a>
+                                ) : (
+                                  chat.name
+                                )}
                                 <span className={`badge badge-${chat.type}`}>
                                   {chat.type === 'private' ? 'DM' : chat.type}
                                 </span>
