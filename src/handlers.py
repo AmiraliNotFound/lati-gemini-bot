@@ -255,11 +255,115 @@ async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "📌 **دستورات من:**\n"
             "🔹 /start : بیدار کردن من\n"
             "🔹 /help : همین پیامی که داری می‌خونی\n"
-            "🔹 /tldr : خلاصه‌سازی پیام‌های گروه (فقط تو گروه‌ها کار میکنه)\n\n"
+            "🔹 /tldr : خلاصه‌سازی پیام‌های گروه (فقط تو گروه‌ها کار میکنه)\n"
+            "🔹 /ask <سوال> : پرسیدن سوال مستقیم بدون قاتی کردن با تاریخچه چت قبلی\n\n"
             "🎥 **دانلودر هوشمند:**\n"
             "اگه لینک **اینستاگرام** یا **یوتوب** بفرستی، ویدیو رو مستقیم برات همینجا دانلود می‌کنم و می‌فرستم!"
         )
         await update.message.reply_text(help_text, parse_mode="Markdown")
+
+async def ask_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Handler for /ask command.
+    Answers a question out of context of the chat history.
+    """
+    if not update.message:
+        return
+        
+    chat_id = update.message.chat_id
+    
+    # 1. Check if a query was provided
+    text_content = update.message.text or ""
+    parts = text_content.split(maxsplit=1)
+    if len(parts) < 2 or not parts[1].strip():
+        await update.message.reply_text(
+            "⚠️ لطفاً سوال خود را بعد از دستور بنویسید.\nمثال: `/ask پایتخت فرانسه کجاست؟`",
+            parse_mode="Markdown",
+            reply_to_message_id=update.message.message_id
+        )
+        return
+        
+    question = parts[1].strip()
+    
+    # 2. Inform user we are generating reply
+    status_msg = await update.message.reply_text("⏳ دارم فکر می‌کنم...")
+    
+    # 3. Retrieve configurations (Persona prompt, custom model, etc.)
+    db_conn = await database.get_db_connection(config.DB_FILE)
+    custom_model = None
+    try:
+        async with db_conn.execute(
+            "SELECT custom_model FROM chat_metadata WHERE chat_id = ?", (chat_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            if row:
+                custom_model = row[0]
+    except Exception as db_err:
+        logger.warning(f"Failed to fetch custom model in ask_handler: {db_err}")
+    finally:
+        await db_conn.close()
+
+    # Determine Model ID
+    model_id = custom_model if custom_model else config.runtime_config.get("MODEL_ID", "gemini-2.5-flash")
+    
+    # Determine System Instruction
+    system_instruction = config.runtime_config.get("SYSTEM_INSTRUCTION", "")
+    timeout_threshold = config.runtime_config.get("API_TIMEOUT", 10.0)
+    
+    # Build content prompt (No history!)
+    contents = [
+        f"You are inside a direct execution environment. A user has asked you a single question outside of the regular conversation context.\n\n"
+        f"QUESTION:\n{question}\n\n"
+        f"TASK:\nFormulate a reply, strictly adhering to your system persona instruction.\n"
+        f"CRITICAL RULE: DO NOT prefix your response with 'Bot:' or your name. Just output the raw message content."
+    ]
+    
+    try:
+        client = get_ai_client()
+        fallback_str = config.runtime_config.get("FALLBACK_MODELS", "gemini-2.5-flash-lite,gemini-2.5-flash,gemma-4-31b-it")
+        fallback_list = [m.strip() for m in fallback_str.split(",") if m.strip()]
+        candidate_models = [model_id]
+        for fb in fallback_list:
+            if fb not in candidate_models:
+                candidate_models.append(fb)
+                
+        response = None
+        last_error = None
+        for current_model in candidate_models:
+            try:
+                logger.info(f"Attempting content generation in ask_handler using model: {current_model}")
+                response = await asyncio.wait_for(
+                    client.models.generate_content(
+                        model=current_model,
+                        contents=contents,
+                        config=types.GenerateContentConfig(system_instruction=system_instruction)
+                    ),
+                    timeout=timeout_threshold
+                )
+                logger.info(f"Successfully generated ask reply with model: {current_model}")
+                await database.log_api_request(config.DB_FILE, current_model, "text", "success")
+                break
+            except (Exception, asyncio.TimeoutError) as e:
+                await database.log_api_request(config.DB_FILE, current_model, "text", "error")
+                logger.warning(f"Model {current_model} failed in ask_handler: {e}. Trying fallback models...")
+                last_error = e
+                
+        if response is None:
+            if last_error:
+                raise last_error
+            else:
+                raise ValueError("No models succeeded in ask_handler.")
+        
+        bot_response = response.text if response.text else "🗿 بنال ببینم چی میگی..."
+        bot_response = re.sub(r"^Bot\s*\([^)]+\):\s*", "", bot_response).strip()
+        
+        # Reply to user
+        await status_msg.edit_text(bot_response)
+        
+    except Exception as e:
+        logger.error(f"Error in ask_handler: {e}")
+        await database.log_error(config.DB_FILE, "ASK_HANDLER_ERROR", f"Error in ask_handler: {e}", traceback.format_exc())
+        await status_msg.edit_text("مغزم ارور داد... یه بار دیگه بپرس 🚶‍♂️")
 
 async def admin_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Enables authenticated users to query or update system settings securely via private chat."""
@@ -557,7 +661,7 @@ async def cobalt_fallback_download(url: str, output_path: str) -> tuple[bool, st
         await database.log_error(config.DB_FILE, "DOWNLOAD_COBALT_ERROR", f"Cobalt fallback failed: {e}", traceback.format_exc())
     return False, None
 
-def sync_download_video(url: str, output_path: str):
+def sync_download_video(url: str, output_path: str) -> dict:
     if not yt_dlp:
         raise ImportError("yt_dlp is not installed")
         
@@ -591,8 +695,8 @@ def sync_download_video(url: str, output_path: str):
     if cookies_exist:
         logger.info("Cookies defined. Attempting standard download.")
         with yt_dlp.YoutubeDL(ydl_opts_base) as ydl:
-            ydl.download([url])
-        return
+            info = ydl.extract_info(url, download=True)
+            return {'title': info.get('title') or '', 'url': info.get('webpage_url') or url}
 
     # Use impersonation client for Instagram downloading to not be contingent on cookies
     if ImpersonateTarget:
@@ -612,9 +716,9 @@ def sync_download_video(url: str, output_path: str):
                 ydl_opts['impersonate'] = ImpersonateTarget.from_str(target)
                 logger.info(f"Attempting download with impersonate target: {target}")
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    ydl.download([url])
+                    info = ydl.extract_info(url, download=True)
                 logger.info(f"Download succeeded using impersonate target: {target}")
-                return
+                return {'title': info.get('title') or '', 'url': info.get('webpage_url') or url}
             except Exception as e:
                 logger.warning(f"Download with impersonation target {target} failed: {e}")
                 last_err = e
@@ -623,7 +727,8 @@ def sync_download_video(url: str, output_path: str):
     else:
         # Fallback to standard download if ImpersonateTarget is not imported
         with yt_dlp.YoutubeDL(ydl_opts_base) as ydl:
-            ydl.download([url])
+            info = ydl.extract_info(url, download=True)
+            return {'title': info.get('title') or '', 'url': info.get('webpage_url') or url}
 
 import json
 
@@ -892,7 +997,6 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
             items, metadata = await download_instagram_post(url, cookies_path)
             if items:
                 # Format caption
-                uploader = metadata.get('uploader', 'unknown')
                 caption = metadata.get('caption', '').strip()
                 webpage_url = metadata.get('webpage_url', url)
                 
@@ -901,12 +1005,10 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
                 if len(caption) > max_caption_len:
                     caption = caption[:max_caption_len] + "..."
 
-                formatted_caption = (
-                    f"📸 **پست اینستاگرام**\n\n"
-                    f"👤 **صفحه:** @{uploader}\n"
-                    f"📝 **کپشن:**\n{caption}\n\n"
-                    f"🔗 [مشاهده در اینستاگرام]({webpage_url})"
-                )
+                if caption:
+                    formatted_caption = f"{caption}\n\n🔗 {webpage_url}"
+                else:
+                    formatted_caption = f"🔗 {webpage_url}"
 
                 if len(items) == 1:
                     # Single item send
@@ -1031,7 +1133,7 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
             )
             return
     
-    async def try_send_video_file(path: str) -> bool:
+    async def try_send_video_file(path: str, caption: str = None) -> bool:
         if not os.path.exists(path):
             return False
             
@@ -1056,6 +1158,7 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
                     height=height,
                     thumbnail=thumb_file,
                     supports_streaming=True,
+                    caption=caption,
                     reply_to_message_id=update.message.message_id
                 )
                 if thumb_file:
@@ -1068,12 +1171,19 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
 
     try:
         # Step 1: Try yt-dlp first
+        video_metadata = None
         try:
-            await asyncio.to_thread(sync_download_video, url, filename)
+            video_metadata = await asyncio.to_thread(sync_download_video, url, filename)
             if os.path.exists(filename):
                 file_size = os.path.getsize(filename)
                 if file_size <= 50 * 1024 * 1024:
-                    await try_send_video_file(filename)
+                    title = video_metadata.get('title', '') if video_metadata else ''
+                    webpage_url = video_metadata.get('url', url) if video_metadata else url
+                    if title:
+                        yt_caption = f"{title}\n\n🔗 {webpage_url}"
+                    else:
+                        yt_caption = f"🔗 {webpage_url}"
+                    await try_send_video_file(filename, caption=yt_caption)
                     await status_msg.delete()
                     return
                 else:
@@ -1096,7 +1206,7 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
                 file_size = os.path.getsize(filename)
                 if file_size <= 50 * 1024 * 1024:
                     try:
-                        await try_send_video_file(filename)
+                        await try_send_video_file(filename, caption=f"🔗 {url}")
                         await status_msg.delete()
                         return
                     except Exception:

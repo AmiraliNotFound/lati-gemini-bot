@@ -81,6 +81,17 @@ function App() {
     return () => clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    if (selectedChat) {
+      setTimeout(() => {
+        const modalElement = document.querySelector('.manage-modal-content');
+        if (modalElement) {
+          modalElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 100);
+    }
+  }, [selectedChat]);
+
   const openManageModal = (chat) => {
     setSelectedChat(chat);
     setEditMuted(chat.is_muted === 1);
@@ -1010,7 +1021,10 @@ function App() {
 
       {/* Manage Chat Modal Overlay Drawer */}
       {selectedChat && (
-        <div className="modal-overlay" style={{display: 'flex', alignItems: 'flex-end', justifyContent: 'center'}} onClick={() => setSelectedChat(null)}>
+        <div className="modal-overlay" style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
+          display: 'flex', alignItems: 'flex-end', justifyContent: 'center', zIndex: 9998
+        }} onClick={() => setSelectedChat(null)}>
           <div className="manage-modal-content" onClick={(e) => e.stopPropagation()}>
             <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20}}>
               <div>

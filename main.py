@@ -19,7 +19,8 @@ async def post_init(application: Application) -> None:
     commands = [
         BotCommand("start", "بیدار کردن ربات"),
         BotCommand("help", "راهنمای استفاده و قابلیت‌ها"),
-        BotCommand("tldr", "خلاصه کردن پیام‌های گروه (۱۵۰ پیام آخر)")
+        BotCommand("tldr", "خلاصه کردن پیام‌های گروه (۱۵۰ پیام آخر)"),
+        BotCommand("ask", "پرسیدن سوال مستقیم بدون در نظر گرفتن تاریخچه")
     ]
     try:
         await application.bot.set_my_commands(commands)
@@ -48,6 +49,7 @@ def main():
     application.add_handler(CommandHandler("help", handlers.help_handler))
     application.add_handler(CommandHandler("admin", handlers.admin_handler))
     application.add_handler(CommandHandler("tldr", handlers.tldr_handler))
+    application.add_handler(CommandHandler("ask", handlers.ask_handler))
     
     # Message Pipeline Routing: support text, photo, and voice messages
     message_filter = filters.TEXT | filters.PHOTO | filters.VOICE

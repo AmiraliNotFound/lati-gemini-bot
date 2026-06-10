@@ -180,6 +180,7 @@ sudo systemctl start gemini-bot.service
 ### User Commands
 - `/start`: Cheeky greeting message.
 - `/tldr`: Summarizes group chat topics and drama sarcasticly (Persian slang, up to 150 messages).
+- `/ask <question>`: Directly answers a single question using Gemini without using or loading chat history context.
 
 ### Admin Inline Commands
 - `/admin`: Displays configuration dashboard metrics.
