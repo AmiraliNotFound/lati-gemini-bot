@@ -118,8 +118,64 @@ async def update_config(request):
 
 async def get_recent_chats(request):
     check_auth(request)
-    chats = await database.get_recent_chats(config.DB_FILE, limit=100)
+    chats = await database.get_detailed_chats(config.DB_FILE)
     return web.json_response(chats)
+
+async def update_chat_settings_handler(request):
+    check_auth(request)
+    data = await request.json()
+    chat_id = int(data.get("chat_id"))
+    is_muted = data.get("is_muted")
+    custom_roast_chance = data.get("custom_roast_chance")
+    custom_cooldown = data.get("custom_cooldown")
+
+    await database.update_chat_settings(
+        config.DB_FILE,
+        chat_id,
+        is_muted=is_muted,
+        custom_roast_chance=custom_roast_chance,
+        custom_cooldown=custom_cooldown
+    )
+    return web.json_response({"status": "success"})
+
+async def leave_chat_handler(request):
+    check_auth(request)
+    data = await request.json()
+    chat_id = int(data.get("chat_id"))
+    app = request.app.get("bot_app")
+    if not app:
+        return web.json_response({"status": "error", "reason": "Bot application not running"}, status=500)
+    try:
+        await app.bot.leave_chat(chat_id)
+        return web.json_response({"status": "success"})
+    except Exception as e:
+        logger.error(f"Failed to leave chat {chat_id}: {e}")
+        return web.json_response({"status": "error", "reason": str(e)}, status=500)
+
+async def alert_chat_handler(request):
+    check_auth(request)
+    data = await request.json()
+    chat_id = int(data.get("chat_id"))
+    message = data.get("message")
+    if not message:
+        return web.json_response({"status": "error", "reason": "Message text is empty"}, status=400)
+    app = request.app.get("bot_app")
+    if not app:
+        return web.json_response({"status": "error", "reason": "Bot application not running"}, status=500)
+    try:
+        await app.bot.send_message(chat_id=chat_id, text=message, parse_mode="Markdown")
+        return web.json_response({"status": "success"})
+    except Exception as e:
+        logger.error(f"Failed to send alert to chat {chat_id}: {e}")
+        return web.json_response({"status": "error", "reason": str(e)}, status=500)
+
+async def get_top_users_handler(request):
+    check_auth(request)
+    chat_id = int(request.query.get("chat_id"))
+    limit = int(request.query.get("limit", 5))
+    users = await database.get_top_chat_users(config.DB_FILE, chat_id, limit=limit)
+    return web.json_response(users)
+
 
 async def get_blocked(request):
     check_auth(request)
@@ -275,6 +331,10 @@ async def setup_server(bot_app):
     # New management routes
     cors.add(app.router.add_post('/api/upload_cookies', upload_cookies))
     cors.add(app.router.add_post('/api/update_ytdlp', update_ytdlp))
+    cors.add(app.router.add_post('/api/chat/settings', update_chat_settings_handler))
+    cors.add(app.router.add_post('/api/chat/leave', leave_chat_handler))
+    cors.add(app.router.add_post('/api/chat/alert', alert_chat_handler))
+    cors.add(app.router.add_get('/api/chat/top_users', get_top_users_handler))
 
     # Serve static frontend files and SPA root
     app.router.add_get('/', index_handler)

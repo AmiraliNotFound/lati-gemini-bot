@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import WebApp from '@twa-dev/sdk';
-import { Activity, ShieldAlert, Settings, RefreshCcw, Users, Megaphone, Upload, RefreshCw } from 'lucide-react';
+import { Activity, ShieldAlert, Settings, RefreshCcw, Users, Megaphone, Upload, RefreshCw, MessageSquare, Clock, Search, Send, LogOut, ShieldOff, Check, X } from 'lucide-react';
 import axios from 'axios';
 import './index.css';
 
@@ -29,6 +29,19 @@ function App() {
   const [updatingScraper, setUpdatingScraper] = useState(false);
   const [uploadingCookies, setUploadingCookies] = useState(false);
 
+  // Mod tab UI and Modal state
+  const [searchTerm, setSearchTerm] = useState('');
+  const [currentFilter, setCurrentFilter] = useState('all');
+  const [selectedChat, setSelectedChat] = useState(null);
+  const [topUsers, setTopUsers] = useState([]);
+  const [loadingTopUsers, setLoadingTopUsers] = useState(false);
+  const [alertText, setAlertText] = useState('');
+  const [overrideRoastChance, setOverrideRoastChance] = useState(false);
+  const [overrideCooldown, setOverrideCooldown] = useState(false);
+  const [customRoastChanceValue, setCustomRoastChanceValue] = useState(0.02);
+  const [customCooldownValue, setCustomCooldownValue] = useState(60);
+  const [savingSettings, setSavingSettings] = useState(false);
+
   useEffect(() => {
     try {
       WebApp.ready();
@@ -40,6 +53,99 @@ function App() {
     const interval = setInterval(fetchData, 5000); // Live update every 5s
     return () => clearInterval(interval);
   }, []);
+
+  const openManageModal = (chat) => {
+    setSelectedChat(chat);
+    setOverrideRoastChance(chat.custom_roast_chance !== null);
+    setCustomRoastChanceValue(chat.custom_roast_chance !== null ? chat.custom_roast_chance : (config?.RANDOM_ROAST_CHANCE || 0.02));
+    setOverrideCooldown(chat.custom_cooldown !== null);
+    setCustomCooldownValue(chat.custom_cooldown !== null ? chat.custom_cooldown : 60);
+    setAlertText('');
+    setTopUsers([]);
+    fetchTopUsers(chat.chat_id);
+  };
+
+  const fetchTopUsers = async (chatId) => {
+    setLoadingTopUsers(true);
+    try {
+      const res = await axios.get(`${API_BASE}/chat/top_users?chat_id=${chatId}`);
+      setTopUsers(res.data);
+    } catch (e) {
+      console.error("Error fetching top active users:", e);
+    }
+    setLoadingTopUsers(false);
+  };
+
+  const saveChatSettings = async () => {
+    if (!selectedChat) return;
+    setSavingSettings(true);
+    try {
+      await axios.post(`${API_BASE}/chat/settings`, {
+        chat_id: selectedChat.chat_id,
+        is_muted: selectedChat.is_muted,
+        custom_roast_chance: overrideRoastChance ? parseFloat(customRoastChanceValue) : null,
+        custom_cooldown: overrideCooldown ? parseInt(customCooldownValue) : null
+      });
+      showToast("Chat settings saved successfully!");
+      fetchData(); // Refresh list to get updated setting values
+      
+      // Update selectedChat local values so UI stays sync'd
+      setSelectedChat(prev => ({
+        ...prev,
+        custom_roast_chance: overrideRoastChance ? parseFloat(customRoastChanceValue) : null,
+        custom_cooldown: overrideCooldown ? parseInt(customCooldownValue) : null
+      }));
+    } catch (e) {
+      showToast("Failed to save chat settings.");
+    }
+    setSavingSettings(false);
+  };
+
+  const sendChatAlert = async () => {
+    if (!selectedChat || !alertText.trim()) return showToast("Alert message is empty");
+    try {
+      await axios.post(`${API_BASE}/chat/alert`, {
+        chat_id: selectedChat.chat_id,
+        message: alertText
+      });
+      showToast("Alert sent directly to group!");
+      setAlertText('');
+    } catch (e) {
+      showToast("Failed to send alert.");
+    }
+  };
+
+  const handleLeaveChat = async () => {
+    if (!selectedChat) return;
+    const confirm = await askConfirm(`Force bot to leave group "${selectedChat.name}"?`);
+    if (confirm) {
+      try {
+        await axios.post(`${API_BASE}/chat/leave`, { chat_id: selectedChat.chat_id });
+        showToast("Bot has left the group.");
+        setSelectedChat(null);
+        fetchData();
+      } catch (e) {
+        showToast("Failed to leave group.");
+      }
+    }
+  };
+
+  const formatRelativeTime = (dateStr) => {
+    if (!dateStr) return 'unknown';
+    try {
+      const date = new Date(dateStr.replace(' ', 'T') + 'Z');
+      const now = new Date();
+      const diffMs = now - date;
+      const diffMins = Math.floor(diffMs / 60000);
+      if (diffMins < 1) return 'just now';
+      if (diffMins < 60) return `${diffMins}m ago`;
+      const diffHours = Math.floor(diffMins / 60);
+      if (diffHours < 24) return `${diffHours}h ago`;
+      return date.toLocaleDateString();
+    } catch (e) {
+      return dateStr;
+    }
+  };
 
   const fetchData = async () => {
     try {
@@ -301,36 +407,98 @@ function App() {
 
           {activeTab === 'moderation' && (
             <>
-              <div className="card">
-                <h2><ShieldAlert size={18}/> Blocked Entities</h2>
-                {blocked.map(b => (
-                  <div className="list-item" key={b.id}>
-                    <div className="item-info">
-                      <div className="item-name">{b.name} <span style={{fontSize:10, opacity:0.5}}>({b.type})</span></div>
-                      <div className="item-sub">ID: {b.id}</div>
-                    </div>
-                    <button className="btn" onClick={() => handleUnblock(b.id)}>Unblock</button>
-                  </div>
-                ))}
-                {blocked.length === 0 && <p style={{color: '#a1a1aa'}}>No blocked users/groups.</p>}
+              {/* Search and Filters */}
+              <div className="search-container">
+                <input 
+                  type="text" 
+                  className="search-input" 
+                  placeholder="Search chats by name or ID..." 
+                  value={searchTerm} 
+                  onChange={e => setSearchTerm(e.target.value)} 
+                />
               </div>
 
-              <div className="card">
-                <h2><ShieldAlert size={18}/> Recent Active Chats</h2>
-                <p style={{fontSize: '12px', color: '#a1a1aa', marginBottom: '12px'}}>
-                  Blocking a group forces the bot to leave immediately.
-                </p>
-                {chats.map(chat => (
-                  <div className="list-item" key={chat.chat_id}>
-                    <div className="item-info">
-                      <div className="item-name">{chat.name}</div>
-                      <div className="item-sub">ID: {chat.chat_id}</div>
-                    </div>
-                    <button className="btn btn-danger" onClick={() => handleBlock(chat)}>Block</button>
-                  </div>
+              <div className="filter-container">
+                {['all', 'groups', 'dms', 'muted', 'blocked'].map(f => (
+                  <button 
+                    key={f} 
+                    className={`filter-btn ${currentFilter === f ? 'active' : ''}`}
+                    onClick={() => setCurrentFilter(f)}
+                  >
+                    {f.toUpperCase()}
+                  </button>
                 ))}
-                {chats.length === 0 && <p style={{color: '#a1a1aa'}}>No active chats found.</p>}
               </div>
+
+              {currentFilter === 'blocked' ? (
+                <div className="card">
+                  <h2><ShieldAlert size={18}/> Blocked Entities ({blocked.filter(b => b.name.toLowerCase().includes(searchTerm.toLowerCase()) || String(b.id).includes(searchTerm)).length})</h2>
+                  {blocked
+                    .filter(b => b.name.toLowerCase().includes(searchTerm.toLowerCase()) || String(b.id).includes(searchTerm))
+                    .map(b => (
+                      <div className="list-item" key={b.id}>
+                        <div className="item-info">
+                          <div className="item-name">
+                            {b.name} <span className="badge badge-blocked" style={{marginLeft: 6}}>Blocked</span>
+                          </div>
+                          <div className="item-sub">ID: {b.id} | Type: {b.type}</div>
+                        </div>
+                        <button className="btn" onClick={() => handleUnblock(b.id)}>Unblock</button>
+                      </div>
+                    ))}
+                  {blocked.filter(b => b.name.toLowerCase().includes(searchTerm.toLowerCase()) || String(b.id).includes(searchTerm)).length === 0 && (
+                    <p style={{color: '#a1a1aa'}}>No blocked users/groups matching criteria.</p>
+                  )}
+                </div>
+              ) : (
+                <div className="card">
+                  {(() => {
+                    const filteredChats = chats.filter(chat => {
+                      const matchesSearch = chat.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                                            String(chat.chat_id).includes(searchTerm);
+                      if (!matchesSearch) return false;
+                      
+                      if (currentFilter === 'groups') return chat.type === 'group' || chat.type === 'supergroup';
+                      if (currentFilter === 'dms') return chat.type === 'private';
+                      if (currentFilter === 'muted') return chat.is_muted === 1;
+                      return true;
+                    });
+                    return (
+                      <>
+                        <h2><ShieldAlert size={18}/> Active Chats ({filteredChats.length})</h2>
+                        <p style={{fontSize: '12px', color: '#a1a1aa', marginBottom: '12px'}}>
+                          Manage overrides, mute bot responses, or send direct alerts.
+                        </p>
+                        {filteredChats.map(chat => (
+                          <div className="list-item" key={chat.chat_id} style={{padding: '16px 0'}}>
+                            <div className="item-info" style={{flex: 1, marginRight: 12}}>
+                              <div className="item-name" style={{display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6}}>
+                                {chat.name}
+                                <span className={`badge badge-${chat.type}`}>
+                                  {chat.type === 'private' ? 'DM' : chat.type}
+                                </span>
+                                {chat.is_muted === 1 && <span className="badge badge-muted">Muted</span>}
+                              </div>
+                              <div className="chat-meta">
+                                <span>ID: {chat.chat_id}</span>
+                                <span>•</span>
+                                <span><MessageSquare size={12}/> {chat.msg_count} msgs</span>
+                                <span>•</span>
+                                <span><Clock size={12}/> {formatRelativeTime(chat.last_active)}</span>
+                              </div>
+                            </div>
+                            <div style={{display: 'flex', gap: 6}}>
+                              <button className="btn" style={{background: 'var(--tg-theme-button-color)'}} onClick={() => openManageModal(chat)}>Manage</button>
+                              <button className="btn btn-danger" style={{padding: '8px 12px'}} onClick={() => handleBlock(chat)}>Block</button>
+                            </div>
+                          </div>
+                        ))}
+                        {filteredChats.length === 0 && <p style={{color: '#a1a1aa'}}>No active chats found matching criteria.</p>}
+                      </>
+                    );
+                  })()}
+                </div>
+              )}
             </>
           )}
 
@@ -460,6 +628,178 @@ function App() {
             </>
           )}
         </>
+      )}
+
+      {/* Manage Chat Modal Overlay Drawer */}
+      {selectedChat && (
+        <div className="modal-overlay" style={{display: 'flex', alignItems: 'flex-end', justifyContent: 'center'}} onClick={() => setSelectedChat(null)}>
+          <div className="manage-modal-content" onClick={(e) => e.stopPropagation()}>
+            <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20}}>
+              <div>
+                <h3 style={{fontSize: 18, fontWeight: 700}}>{selectedChat.name}</h3>
+                <span style={{fontSize: 12, color: 'var(--tg-theme-hint-color)'}}>ID: {selectedChat.chat_id}</span>
+              </div>
+              <button className="btn" style={{background: 'rgba(255,255,255,0.06)', borderRadius: '50%', width: 36, height: 36, padding: 0, justifyContent: 'center'}} onClick={() => setSelectedChat(null)}>
+                <X size={18} />
+              </button>
+            </div>
+
+            <div style={{display: 'flex', gap: 6, marginBottom: 20}}>
+              <span className={`badge badge-${selectedChat.type}`}>
+                {selectedChat.type === 'private' ? 'DM' : selectedChat.type}
+              </span>
+              {selectedChat.is_muted === 1 && <span className="badge badge-muted">Muted</span>}
+              <span className="badge" style={{background: 'rgba(255,255,255,0.06)', color: 'var(--tg-theme-hint-color)'}}>
+                {selectedChat.msg_count} Messages
+              </span>
+            </div>
+
+            {/* Chat control settings */}
+            <div className="card" style={{padding: 16, border: '1px solid var(--border-color)', margin: '0 0 20px 0', opacity: 1, transform: 'none'}}>
+              <h4 style={{fontSize: 14, marginBottom: 16, color: 'var(--tg-theme-hint-color)', display: 'flex', alignItems: 'center', gap: 6}}>
+                <Settings size={16}/> Override Rules
+              </h4>
+
+              {/* Mute Responses */}
+              <div className="flex-row-between" style={{marginBottom: 16}}>
+                <div>
+                  <span style={{fontWeight: 600, fontSize: 13}}>Mute Bot Responses</span>
+                  <p style={{fontSize: 11, color: 'var(--tg-theme-hint-color)'}}>Silence all AI responses in this chat.</p>
+                </div>
+                <label className="toggle-switch">
+                  <input 
+                    type="checkbox" 
+                    checked={selectedChat.is_muted === 1} 
+                    onChange={(e) => setSelectedChat({...selectedChat, is_muted: e.target.checked ? 1 : 0})}
+                  />
+                  <span className="toggle-slider"></span>
+                </label>
+              </div>
+
+              {/* Roast Chance */}
+              <div style={{marginBottom: 16}}>
+                <div className="flex-row-between">
+                  <div>
+                    <span style={{fontWeight: 600, fontSize: 13}}>Override Roast Chance</span>
+                    <p style={{fontSize: 11, color: 'var(--tg-theme-hint-color)'}}>Set custom random reply probability.</p>
+                  </div>
+                  <label className="toggle-switch">
+                    <input 
+                      type="checkbox" 
+                      checked={overrideRoastChance} 
+                      onChange={(e) => setOverrideRoastChance(e.target.checked)}
+                    />
+                    <span className="toggle-slider"></span>
+                  </label>
+                </div>
+                {overrideRoastChance && (
+                  <div style={{marginTop: 8}}>
+                    <div className="flex-row-between" style={{marginBottom: 4}}>
+                      <span style={{fontSize: 11, color: 'var(--tg-theme-hint-color)'}}>Random Reply Chance:</span>
+                      <strong style={{color: '#3b82f6', fontSize: 12}}>{Math.round(customRoastChanceValue * 100)}%</strong>
+                    </div>
+                    <input 
+                      type="range" 
+                      min="0" 
+                      max="1" 
+                      step="0.01" 
+                      className="range-slider" 
+                      value={customRoastChanceValue} 
+                      onChange={(e) => setCustomRoastChanceValue(e.target.value)} 
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Cooldown */}
+              <div style={{marginBottom: 20}}>
+                <div className="flex-row-between">
+                  <div>
+                    <span style={{fontWeight: 600, fontSize: 13}}>Override Spam Cooldown</span>
+                    <p style={{fontSize: 11, color: 'var(--tg-theme-hint-color)'}}>Custom rate limit window in seconds.</p>
+                  </div>
+                  <label className="toggle-switch">
+                    <input 
+                      type="checkbox" 
+                      checked={overrideCooldown} 
+                      onChange={(e) => setOverrideCooldown(e.target.checked)}
+                    />
+                    <span className="toggle-slider"></span>
+                  </label>
+                </div>
+                {overrideCooldown && (
+                  <div style={{marginTop: 10}}>
+                    <label style={{fontSize: 11, color: 'var(--tg-theme-hint-color)', display: 'block', marginBottom: 4}}>Window Size (Seconds):</label>
+                    <input 
+                      type="number" 
+                      className="input" 
+                      placeholder="e.g. 60" 
+                      value={customCooldownValue} 
+                      onChange={(e) => setCustomCooldownValue(e.target.value)} 
+                    />
+                  </div>
+                )}
+              </div>
+
+              <button className="btn" style={{width: '100%', justifyContent: 'center'}} onClick={saveChatSettings} disabled={savingSettings}>
+                {savingSettings ? 'Saving...' : 'Save Settings'}
+              </button>
+            </div>
+
+            {/* Warn / Broadcast directly to this group */}
+            <div className="card" style={{padding: 16, border: '1px solid var(--border-color)', margin: '0 0 20px 0', opacity: 1, transform: 'none'}}>
+              <h4 style={{fontSize: 14, marginBottom: 12, color: 'var(--tg-theme-hint-color)', display: 'flex', alignItems: 'center', gap: 6}}>
+                <Megaphone size={16}/> Broadcaster / Send Message
+              </h4>
+              <textarea 
+                className="input" 
+                rows="3" 
+                placeholder="Type warning/alert message... (Supports Markdown)" 
+                value={alertText} 
+                onChange={(e) => setAlertText(e.target.value)}
+              />
+              <button className="btn" style={{width: '100%', marginTop: 10, justifyContent: 'center', gap: 6}} onClick={sendChatAlert}>
+                <Send size={14} /> Send Alert
+              </button>
+            </div>
+
+            {/* Top Active Users metrics */}
+            <div className="card" style={{padding: 16, border: '1px solid var(--border-color)', margin: '0 0 20px 0', opacity: 1, transform: 'none'}}>
+              <h4 style={{fontSize: 14, marginBottom: 8, color: 'var(--tg-theme-hint-color)', display: 'flex', alignItems: 'center', gap: 6}}>
+                <Users size={16}/> Top Active Users
+              </h4>
+              {loadingTopUsers ? (
+                <div style={{textAlign: 'center', padding: '16px 0'}}><RefreshCcw size={20} className="spinning" /></div>
+              ) : topUsers.length > 0 ? (
+                <div className="top-users-list">
+                  {(() => {
+                    const maxCount = Math.max(...topUsers.map(u => u.count), 1);
+                    return topUsers.map((user, idx) => (
+                      <div className="top-user-item" key={idx}>
+                        <div className="top-user-header">
+                          <span>{user.name}</span>
+                          <span style={{color: '#8b5cf6'}}>{user.count} msgs</span>
+                        </div>
+                        <div className="progress-bar-bg">
+                          <div className="progress-bar-fill" style={{width: `${(user.count / maxCount) * 100}%`}}></div>
+                        </div>
+                      </div>
+                    ));
+                  })()}
+                </div>
+              ) : (
+                <p style={{color: 'var(--tg-theme-hint-color)', fontSize: 12}}>No logged participant activity metrics available.</p>
+              )}
+            </div>
+
+            {/* Leave Chat Action */}
+            {(selectedChat.type === 'group' || selectedChat.type === 'supergroup') && (
+              <button className="btn btn-danger" style={{width: '100%', justifyContent: 'center', gap: 6}} onClick={handleLeaveChat}>
+                <LogOut size={16} /> Force Bot to Leave Group
+              </button>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );

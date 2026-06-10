@@ -85,9 +85,32 @@ async def init_db(db_path: str):
         await db.execute('''
             CREATE TABLE IF NOT EXISTS chat_metadata (
                 chat_id INTEGER PRIMARY KEY,
-                chat_name TEXT
+                chat_name TEXT,
+                chat_type TEXT,
+                msg_count INTEGER DEFAULT 0,
+                last_active DATETIME DEFAULT CURRENT_TIMESTAMP,
+                is_muted INTEGER DEFAULT 0,
+                custom_roast_chance REAL DEFAULT NULL,
+                custom_cooldown INTEGER DEFAULT NULL
             )
         ''')
+        
+        # Safe schema migrations for existing databases
+        migration_columns = [
+            ("chat_type", "TEXT"),
+            ("msg_count", "INTEGER DEFAULT 0"),
+            ("last_active", "DATETIME DEFAULT CURRENT_TIMESTAMP"),
+            ("is_muted", "INTEGER DEFAULT 0"),
+            ("custom_roast_chance", "REAL DEFAULT NULL"),
+            ("custom_cooldown", "INTEGER DEFAULT NULL")
+        ]
+        for col_name, col_type in migration_columns:
+            try:
+                await db.execute(f"ALTER TABLE chat_metadata ADD COLUMN {col_name} {col_type}")
+                logger.info(f"Database migration: Added column {col_name} to chat_metadata.")
+            except aiosqlite.OperationalError:
+                # Column already exists
+                pass
         await db.execute('''
             CREATE TABLE IF NOT EXISTS error_logs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -246,12 +269,23 @@ async def is_blocked(db_path: str, target_id: int) -> bool:
         async with db.execute("SELECT 1 FROM blocked WHERE target_id = ?", (target_id,)) as cursor:
             return await cursor.fetchone() is not None
 
-async def save_chat_metadata(db_path: str, chat_id: int, chat_name: str):
+async def save_chat_metadata(db_path: str, chat_id: int, chat_name: str, chat_type: str = "unknown"):
     async with aiosqlite.connect(db_path) as db:
-        await db.execute(
-            "INSERT OR REPLACE INTO chat_metadata (chat_id, chat_name) VALUES (?, ?)",
-            (chat_id, chat_name)
-        )
+        # Check if chat metadata row exists
+        async with db.execute("SELECT msg_count FROM chat_metadata WHERE chat_id = ?", (chat_id,)) as cursor:
+            row = await cursor.fetchone()
+            
+        if row is None:
+            await db.execute(
+                "INSERT INTO chat_metadata (chat_id, chat_name, chat_type, msg_count, last_active) VALUES (?, ?, ?, 1, CURRENT_TIMESTAMP)",
+                (chat_id, chat_name, chat_type)
+            )
+        else:
+            new_msg_count = row[0] + 1
+            await db.execute(
+                "UPDATE chat_metadata SET chat_name = ?, chat_type = ?, msg_count = ?, last_active = CURRENT_TIMESTAMP WHERE chat_id = ?",
+                (chat_name, chat_type, new_msg_count, chat_id)
+            )
         await db.commit()
 
 async def log_error(db_path: str, error_type: str, error_message: str, stack_trace: str = ""):
@@ -285,5 +319,102 @@ async def get_recent_chats(db_path: str, limit: int = 50) -> list:
         '''
         async with db.execute(query, (limit,)) as cursor:
             return [{"chat_id": r[0], "last_active": r[1], "name": r[2] or f"ID: {r[0]}"} for r in await cursor.fetchall()]
+
+async def is_chat_muted(db_path: str, chat_id: int) -> bool:
+    """Checks if a specific chat has been muted by the admin."""
+    if not os.path.exists(db_path):
+        return False
+    async with aiosqlite.connect(db_path) as db:
+        async with db.execute("SELECT is_muted FROM chat_metadata WHERE chat_id = ?", (chat_id,)) as cursor:
+            row = await cursor.fetchone()
+            return row is not None and row[0] == 1
+
+async def get_chat_settings(db_path: str, chat_id: int) -> dict:
+    """Retrieves dynamic settings (roast chance, cooldown, mute status) for a chat."""
+    if not os.path.exists(db_path):
+        return {}
+    async with aiosqlite.connect(db_path) as db:
+        async with db.execute(
+            "SELECT custom_roast_chance, custom_cooldown, is_muted FROM chat_metadata WHERE chat_id = ?",
+            (chat_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            if row:
+                return {
+                    "custom_roast_chance": row[0],
+                    "custom_cooldown": row[1],
+                    "is_muted": row[2]
+                }
+            return {}
+
+async def update_chat_settings(db_path: str, chat_id: int, is_muted: int = None, custom_roast_chance: float = None, custom_cooldown: int = None):
+    """Updates settings for a specific chat."""
+    async with aiosqlite.connect(db_path) as db:
+        updates = []
+        params = []
+        if is_muted is not None:
+            updates.append("is_muted = ?")
+            params.append(is_muted)
+            
+        if custom_roast_chance is not None:
+            if custom_roast_chance == "" or custom_roast_chance is None:
+                updates.append("custom_roast_chance = NULL")
+            else:
+                updates.append("custom_roast_chance = ?")
+                params.append(float(custom_roast_chance))
+                
+        if custom_cooldown is not None:
+            if custom_cooldown == "" or custom_cooldown is None:
+                updates.append("custom_cooldown = NULL")
+            else:
+                updates.append("custom_cooldown = ?")
+                params.append(int(custom_cooldown))
+                
+        if updates:
+            query = f"UPDATE chat_metadata SET {', '.join(updates)} WHERE chat_id = ?"
+            params.append(chat_id)
+            await db.execute(query, params)
+            await db.commit()
+
+async def get_detailed_chats(db_path: str) -> list:
+    """Gets detailed chat info for the moderation panel."""
+    if not os.path.exists(db_path):
+        return []
+    async with aiosqlite.connect(db_path) as db:
+        query = '''
+            SELECT chat_id, chat_name, chat_type, msg_count, last_active, is_muted, custom_roast_chance, custom_cooldown
+            FROM chat_metadata
+            ORDER BY last_active DESC
+        '''
+        async with db.execute(query) as cursor:
+            rows = await cursor.fetchall()
+            return [{
+                "chat_id": r[0],
+                "name": r[1] or f"ID: {r[0]}",
+                "type": r[2] or "unknown",
+                "msg_count": r[3],
+                "last_active": r[4],
+                "is_muted": r[5],
+                "custom_roast_chance": r[6],
+                "custom_cooldown": r[7]
+            } for r in rows]
+
+async def get_top_chat_users(db_path: str, chat_id: int, limit: int = 5) -> list:
+    """Gets the top active group participants based on logged history."""
+    if not os.path.exists(db_path):
+        return []
+    async with aiosqlite.connect(db_path) as db:
+        query = '''
+            SELECT sender_name, COUNT(*) as cnt
+            FROM messages
+            WHERE chat_id = ? AND role = 'user'
+            GROUP BY sender_name
+            ORDER BY cnt DESC
+            LIMIT ?
+        '''
+        async with db.execute(query, (chat_id, limit)) as cursor:
+            rows = await cursor.fetchall()
+            return [{"name": r[0], "count": r[1]} for r in rows]
+
 
 

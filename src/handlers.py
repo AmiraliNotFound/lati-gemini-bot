@@ -458,9 +458,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     chat_id = update.message.chat.id
+    user_id = update.message.from_user.id
+    sender_username = update.message.from_user.username
+    is_admin = sender_username and sender_username.lower() in config.ALLOWED_ADMINS
 
     # 1. Enforce Blocks
-    user_id = update.message.from_user.id
     if await database.is_blocked(config.DB_FILE, user_id):
         return # Ignore blocked user
 
@@ -472,14 +474,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 logger.error(f"Failed to leave blocked chat {chat_id}: {e}")
         return
 
+    # 1.5 Mute Check
+    if not is_admin and await database.is_chat_muted(config.DB_FILE, chat_id):
+        return
+
     chat_name = update.message.chat.title or update.message.chat.first_name or str(chat_id)
-    await database.save_chat_metadata(config.DB_FILE, chat_id, chat_name)
+    chat_type = update.message.chat.type
+    await database.save_chat_metadata(config.DB_FILE, chat_id, chat_name, chat_type=chat_type)
 
     # Extract user inputs: caption for photos, text for text messages
     user_text = update.message.text or update.message.caption or ""
     sender_name = update.message.from_user.first_name or "User"
-    sender_username = update.message.from_user.username
-    chat_id = update.message.chat_id
     bot_username = context.bot.username
 
     # Detect Instagram/YouTube links and auto-download in background
@@ -498,6 +503,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # 1. Store incoming message context asynchronously
     await database.store_message(config.DB_FILE, chat_id, "user", sender_name, log_text)
 
+    # Fetch custom chat settings
+    chat_settings = await database.get_chat_settings(config.DB_FILE, chat_id)
+
     # 2. Trigger verification
     is_tagged = bot_username and f"@{bot_username}" in user_text
     is_reply_to_bot = (
@@ -506,7 +514,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     is_private = update.message.chat.type == "private"
     
-    random_chance = float(config.runtime_config.get("RANDOM_ROAST_CHANCE", 0.02))
+    custom_chance = chat_settings.get("custom_roast_chance")
+    if custom_chance is not None:
+        random_chance = float(custom_chance)
+    else:
+        random_chance = float(config.runtime_config.get("RANDOM_ROAST_CHANCE", 0.02))
+        
     triggered_randomly = False
     
     if not (is_private or is_tagged or is_reply_to_bot):
@@ -517,15 +530,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
     # 2.5 Rate Limiting Check (Admins are exempt)
-    is_admin = sender_username and sender_username.lower() in config.ALLOWED_ADMINS
     if not is_admin:
         now = asyncio.get_event_loop().time()
         cooldown_key = (chat_id, user_id)
         if cooldown_key not in _user_cooldowns:
             _user_cooldowns[cooldown_key] = []
         
+        custom_cooldown = chat_settings.get("custom_cooldown")
+        cooldown_window = int(custom_cooldown) if custom_cooldown is not None else COOLDOWN_WINDOW
+        
         # Prune old timestamps
-        _user_cooldowns[cooldown_key] = [t for t in _user_cooldowns[cooldown_key] if now - t < COOLDOWN_WINDOW]
+        _user_cooldowns[cooldown_key] = [t for t in _user_cooldowns[cooldown_key] if now - t < cooldown_window]
         
         if len(_user_cooldowns[cooldown_key]) >= MAX_REQUESTS_IN_WINDOW:
             cooldown_responses = [
