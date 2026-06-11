@@ -1019,7 +1019,7 @@ def sync_download_video(url: str, output_path: str) -> dict:
         
     ydl_opts_base = {
         'outtmpl': output_path,
-        'format': 'best[ext=mp4]/best',
+        'format': 'best[ext=mp4][filesize<50M]/best[filesize<50M]/best[ext=mp4][filesize_approx<50M]/best[filesize_approx<50M]/best[ext=mp4]/best',
         'noplaylist': True,
         'quiet': True,
         'max_filesize': 50000000,
@@ -1040,6 +1040,19 @@ def sync_download_video(url: str, output_path: str) -> dict:
     elif os.path.exists(cookies_root_path):
         ydl_opts_base['cookiefile'] = cookies_root_path
         cookies_exist = True
+        
+    # Pre-check video filesize before wasting bandwidth downloading
+    try:
+        check_opts = ydl_opts_base.copy()
+        with yt_dlp.YoutubeDL(check_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            filesize = info.get('filesize') or info.get('filesize_approx') or 0
+            if filesize > 50 * 1024 * 1024:
+                raise ValueError(f"Video is too large: {filesize / (1024*1024):.1f}MB (Max 50MB)")
+    except ValueError as val_err:
+        raise val_err
+    except Exception as check_err:
+        logger.warning(f"Pre-download size check failed/skipped: {check_err}")
         
     if cookies_exist:
         logger.info("Cookies defined. Attempting standard download.")
