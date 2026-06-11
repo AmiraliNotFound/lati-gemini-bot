@@ -2012,52 +2012,68 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def get_direct_media_link(url: str) -> dict:
     # 1. Try Cobalt first (extremely fast)
     import aiohttp
+    
+    # We use a pool of public Cobalt mirrors to bypass rate limits and geoblocks
+    cobalt_instances = [
+        "https://api.cobalt.tools/api/json",
+        "https://api.cobalt.best/api/json",
+        "https://api.orion-belt.net/api/json",
+        "https://cobalt.sh/api/json"
+    ]
+    
     headers = {
         "Accept": "application/json",
         "Content-Type": "application/json",
-        "Origin": "https://cobalt.tools",
-        "Referer": "https://cobalt.tools/",
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
     payload = {"url": url}
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post("https://api.cobalt.tools/api/json", json=payload, headers=headers, timeout=15) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    status = data.get("status")
-                    if status in ["stream", "redirect"] and data.get("url"):
-                        media_url = data.get("url")
-                        
-                        # Determine type
-                        media_type = 'video'
-                        if any(ext in media_url.lower() for ext in ['.jpg', '.jpeg', '.png', '.webp']):
-                            media_type = 'photo'
-                        elif "pinterest.com" in url or "pin.it" in url:
-                            if not any(ext in media_url.lower() for ext in ['.mp4', '.mkv', '.webm']):
-                                media_type = 'photo'
-                                
-                        return {
-                            'type': media_type,
-                            'url': media_url,
-                            'thumbnail': media_url if media_type == 'photo' else None,
-                            'title': ''
-                        }
-                    elif status == "picker" and data.get("picker"):
-                        first_item = data["picker"][0]
-                        media_url = first_item.get("url")
-                        if media_url:
+    
+    for instance in cobalt_instances:
+        try:
+            origin = instance.split("/api")[0]
+            inst_headers = {
+                **headers,
+                "Origin": origin,
+                "Referer": origin + "/"
+            }
+            logger.info(f"Attempting inline media extraction via Cobalt mirror: {instance}")
+            async with aiohttp.ClientSession() as session:
+                async with session.post(instance, json=payload, headers=inst_headers, timeout=8) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        status = data.get("status")
+                        if status in ["stream", "redirect"] and data.get("url"):
+                            media_url = data.get("url")
+                            
+                            # Determine type
                             media_type = 'video'
-                            if first_item.get("type") == "photo" or any(ext in media_url.lower() for ext in ['.jpg', '.jpeg', '.png', '.webp']):
+                            if any(ext in media_url.lower() for ext in ['.jpg', '.jpeg', '.png', '.webp']):
                                 media_type = 'photo'
+                            elif "pinterest.com" in url or "pin.it" in url:
+                                if not any(ext in media_url.lower() for ext in ['.mp4', '.mkv', '.webm']):
+                                    media_type = 'photo'
+                                    
                             return {
                                 'type': media_type,
                                 'url': media_url,
                                 'thumbnail': media_url if media_type == 'photo' else None,
                                 'title': ''
                             }
-    except Exception as e:
-        logger.warning(f"Inline cobalt extraction failed: {e}")
+                        elif status == "picker" and data.get("picker"):
+                            first_item = data["picker"][0]
+                            media_url = first_item.get("url")
+                            if media_url:
+                                media_type = 'video'
+                                if first_item.get("type") == "photo" or any(ext in media_url.lower() for ext in ['.jpg', '.jpeg', '.png', '.webp']):
+                                    media_type = 'photo'
+                                return {
+                                    'type': media_type,
+                                    'url': media_url,
+                                    'thumbnail': media_url if media_type == 'photo' else None,
+                                    'title': ''
+                                }
+        except Exception as e:
+            logger.warning(f"Cobalt mirror {instance} extraction failed: {e}")
 
     # 2. Try yt-dlp metadata extraction (download=False)
     if not yt_dlp:
