@@ -112,7 +112,9 @@ Your database and custom configurations will persist inside the local `./data` f
 > If you encounter the warning:
 > `WARN [0000] Docker Compose is configured to build using Bake, but buildx isn't installed`
 > It means Docker Compose is attempting to use the modern Bake engine but the Buildx plugin is missing. You can resolve this in two ways:
-> 1. **Install Buildx Plugin (Recommended):** Run `sudo apt-get install docker-buildx-plugin -y` on your VPS.
+> 1. **Install Buildx Plugin (Recommended):**
+>    - If using standard Ubuntu/Debian repositories: `sudo apt-get update && sudo apt-get install docker-buildx -y`
+>    - If using official Docker CE repositories: `sudo apt-get update && sudo apt-get install docker-buildx-plugin -y`
 > 2. **Disable Bake integration:** Disable the Bake fallback by prepending `COMPOSE_BAKE=false` to your build/up command:
 >    ```bash
 >    COMPOSE_BAKE=false docker-compose up -d --build
