@@ -718,7 +718,18 @@ function App() {
                                 {chat.custom_model && <span className="badge" style={{background: '#a855f7', color: '#fff', fontSize: '10px'}}>🤖 {chat.custom_model}</span>}
                               </div>
                               <div className="chat-meta">
-                                <span>ID: {chat.chat_id}</span>
+                                <span 
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(String(chat.chat_id));
+                                    showToast("ID copied to clipboard!");
+                                  }}
+                                  style={{cursor: 'pointer'}}
+                                  title="Click to copy User ID"
+                                  onMouseEnter={(e) => e.target.style.textDecoration = 'underline'}
+                                  onMouseLeave={(e) => e.target.style.textDecoration = 'none'}
+                                >
+                                  ID: {chat.chat_id}
+                                </span>
                                 <span>•</span>
                                 <span><MessageSquare size={12}/> {chat.msg_count} msgs</span>
                                 <span>•</span>
