@@ -1023,6 +1023,7 @@ def sync_download_video(url: str, output_path: str) -> dict:
         'noplaylist': True,
         'quiet': True,
         'max_filesize': 50000000,
+        'socket_timeout': 15,
         'remote_components': ['ejs:github'],
         'http_headers': {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
@@ -1620,7 +1621,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Detect Instagram/YouTube links and auto-download in background
     url_match = re.search(r"(https?://(?:www\.)?(?:instagram\.com|youtube\.com|youtu\.be|x\.com|twitter\.com)[^\s]+)", user_text)
     if url_match:
-        await download_and_send_video(update, context, url_match.group(1))
+        asyncio.create_task(download_and_send_video(update, context, url_match.group(1)))
         return
 
     # Format the input label for the database log file
