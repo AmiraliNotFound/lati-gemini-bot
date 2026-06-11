@@ -2218,194 +2218,219 @@ async def handle_guest_message(update: Update, context: ContextTypes.DEFAULT_TYP
     url = url_match.group(1)
     logger.info(f"Guest message link download requested for URL: {url} (query_id: {guest_query_id})")
     
-    # Find a registered admin chat ID
-    admin_cid = None
-    try:
-        import aiosqlite
-        async with aiosqlite.connect(config.DB_FILE) as db:
-            async with db.execute("SELECT chat_id FROM admin_chats LIMIT 1") as cursor:
-                row = await cursor.fetchone()
-                if row:
-                    admin_cid = row[0]
-    except Exception as db_err:
-        logger.error(f"Failed to query admin chat for guest upload: {db_err}")
-
-    media_info = None
-    media_type = None
-    title = ""
-    downloaded_path = None
-    
-    platform = "other"
-    if "instagram.com" in url:
-        platform = "instagram"
-    elif "pinterest.com" in url or "pin.it" in url:
-        platform = "pinterest"
-    elif "youtube.com" in url or "youtu.be" in url:
-        platform = "youtube"
-
-    # Only attempt VPS temp hosting if WEBAPP_URL is configured
-    if config.WEBAPP_URL:
-        temp_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "temp_downloads")
-        if not os.path.exists(temp_dir):
-            try:
-                os.makedirs(temp_dir)
-            except Exception as mkdir_err:
-                logger.error(f"Failed to create temp_downloads dir: {mkdir_err}")
-                
-        # Generate unique temp filename
-        uuid_hex = uuid.uuid4().hex
-        
-        cookies_data_path = os.path.join(os.path.dirname(config.DB_FILE), "cookies.txt")
-        cookies_root_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "cookies.txt")
-        cookies_path = cookies_data_path if os.path.exists(cookies_data_path) else (cookies_root_path if os.path.exists(cookies_root_path) else None)
-        
+    # Step 1: Try zero-bandwidth mode (direct URL redirection) first for non-YouTube links
+    is_youtube = ("youtube.com" in url or "youtu.be" in url)
+    if not is_youtube:
         try:
-            # 1. Instagram download (dedicated)
-            if platform == "instagram":
-                try:
-                    items, metadata = await download_instagram_post(url, cookies_path)
-                    if items:
-                        first_item = items[0]
-                        ext = os.path.splitext(first_item['path'])[1] or (".jpg" if first_item['type'] == "photo" else ".mp4")
-                        target_path = os.path.join(temp_dir, f"guest_{uuid_hex}{ext}")
-                        os.rename(first_item['path'], target_path)
-                        downloaded_path = target_path
-                        media_type = first_item['type']
-                        title = metadata.get('caption', '') or "Instagram Post"
-                        # Clean up other items if carousel
-                        for it in items[1:]:
-                            if os.path.exists(it['path']):
-                                os.remove(it['path'])
-                except Exception as ig_err:
-                    logger.warning(f"Guest Instagram downloader failed: {ig_err}")
+            media_info = await get_direct_media_link(url)
+            if media_info and media_info.get('url'):
+                media_url = media_info.get('url')
+                if not ("googlevideo.com" in media_url or "youtube.com" in media_url or "youtu.be" in media_url):
+                    media_type = media_info.get('type')
+                    thumb_url = media_info.get('thumbnail') or media_url
+                    title = media_info.get('title') or "دانلود مدیا"
+                    caption = format_media_caption(title, url, platform, media_type)
+                    
+                    if media_type == 'photo':
+                        result = {
+                            "type": "photo",
+                            "id": str(uuid.uuid4()),
+                            "photo_url": media_url,
+                            "thumbnail_url": thumb_url,
+                            "caption": caption,
+                            "parse_mode": "HTML",
+                            "title": title
+                        }
+                    else:
+                        result = {
+                            "type": "video",
+                            "id": str(uuid.uuid4()),
+                            "video_url": media_url,
+                            "mime_type": "video/mp4",
+                            "thumbnail_url": thumb_url,
+                            "title": title,
+                            "caption": caption,
+                            "parse_mode": "HTML"
+                        }
+                        
+                    if result:
+                        payload = {
+                            "guest_query_id": guest_query_id,
+                            "result": json.dumps(result)
+                        }
+                        async with aiohttp.ClientSession() as session:
+                            async with session.post(endpoint, json=payload, timeout=10) as resp:
+                                if resp.status == 200:
+                                    logger.info(f"Successfully answered guest query {guest_query_id} in zero-bandwidth mode")
+                                    direct_success = True
+                                else:
+                                    err_text = await resp.text()
+                                    logger.warning(f"Zero-bandwidth mode failed: HTTP {resp.status} - {err_text}. Falling back to VPS server local downloads.")
+        except Exception as direct_err:
+            logger.warning(f"Zero-bandwidth mode exception: {direct_err}. Falling back to VPS server local downloads.")
 
-            # 2. General downloader (yt-dlp or Cobalt) if not Instagram or if Instagram dedicated failed
-            if not downloaded_path:
-                download_path = os.path.join(temp_dir, f"guest_{uuid_hex}.mp4")
-                # Try yt-dlp first
+    # Step 2: Fallback to Option A (VPS Local Serving) if zero-bandwidth mode is skipped or failed
+    if not direct_success:
+        result = None
+        if config.WEBAPP_URL:
+            temp_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "temp_downloads")
+            if not os.path.exists(temp_dir):
                 try:
-                    video_metadata = await asyncio.to_thread(sync_download_video, url, download_path)
-                    if os.path.exists(download_path):
-                        downloaded_path = download_path
-                        media_type = 'video'
-                        title = video_metadata.get('title', '') if video_metadata else ''
-                except Exception as ytdl_err:
-                    logger.warning(f"Guest Mode yt-dlp failed: {ytdl_err}")
+                    os.makedirs(temp_dir)
+                except Exception as mkdir_err:
+                    logger.error(f"Failed to create temp_downloads dir: {mkdir_err}")
+                    
+            uuid_hex = uuid.uuid4().hex
+            cookies_data_path = os.path.join(os.path.dirname(config.DB_FILE), "cookies.txt")
+            cookies_root_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "cookies.txt")
+            cookies_path = cookies_data_path if os.path.exists(cookies_data_path) else (cookies_root_path if os.path.exists(cookies_root_path) else None)
+            
+            downloaded_path = None
+            media_type = None
+            title = ""
 
-                # Try Cobalt if yt-dlp failed
-                if not downloaded_path:
+            try:
+                # 1. Instagram download (dedicated)
+                if platform == "instagram":
                     try:
+                        items, metadata = await download_instagram_post(url, cookies_path)
+                        if items:
+                            first_item = items[0]
+                            ext = os.path.splitext(first_item['path'])[1] or (".jpg" if first_item['type'] == "photo" else ".mp4")
+                            target_path = os.path.join(temp_dir, f"guest_{uuid_hex}{ext}")
+                            os.rename(first_item['path'], target_path)
+                            downloaded_path = target_path
+                            media_type = first_item['type']
+                            title = metadata.get('caption', '') or "Instagram Post"
+                            for it in items[1:]:
+                                if os.path.exists(it['path']):
+                                    os.remove(it['path'])
+                    except Exception as ig_err:
+                        logger.warning(f"Guest Instagram downloader fallback failed: {ig_err}")
+
+                # 2. General downloader (yt-dlp or Cobalt) if not Instagram or if Instagram dedicated failed
+                if not downloaded_path:
+                    download_path = os.path.join(temp_dir, f"guest_{uuid_hex}.mp4")
+                    try:
+                        video_metadata = await asyncio.to_thread(sync_download_video, url, download_path)
                         if os.path.exists(download_path):
-                            os.remove(download_path)
-                        cobalt_success, _ = await cobalt_fallback_download(url, download_path)
-                        if cobalt_success and os.path.exists(download_path):
                             downloaded_path = download_path
                             media_type = 'video'
-                            title = "ویدیو دانلود شده"
-                    except Exception as cobalt_err:
-                        logger.warning(f"Guest Mode Cobalt failed: {cobalt_err}")
+                            title = video_metadata.get('title', '') if video_metadata else ''
+                    except Exception as ytdl_err:
+                        logger.warning(f"Guest Mode yt-dlp fallback failed: {ytdl_err}")
 
-            # 3. Serve via VPS URL and construct results
-            if downloaded_path and os.path.exists(downloaded_path):
-                is_img = False
-                try:
-                    from PIL import Image
-                    with Image.open(downloaded_path) as img:
-                        is_img = True
-                except Exception:
-                    pass
-                
-                if is_img:
-                    media_type = 'photo'
-                
-                file_size = os.path.getsize(downloaded_path)
-                file_basename = os.path.basename(downloaded_path)
-                
-                base_webapp = config.WEBAPP_URL.rstrip('/')
-                public_media_url = f"{base_webapp}/temp/{file_basename}"
-                
-                caption = format_media_caption(title, url, platform, media_type)
-                
-                # Log bandwidth usage (both download and upload, since Telegram fetches it from the VPS)
-                asyncio.create_task(database.log_bandwidth(config.DB_FILE, file_size, file_size, platform, "guest"))
-                
-                # Queue file deletion task after 5 minutes (300 seconds)
-                async def delete_temp_file(path: str):
-                    await asyncio.sleep(300)
-                    if os.path.exists(path):
+                    if not downloaded_path:
                         try:
-                            os.remove(path)
-                            logger.info(f"Cleaned up guest temp file: {path}")
-                        except Exception as cleanup_err:
-                            logger.error(f"Failed to delete guest temp file {path}: {cleanup_err}")
-                asyncio.create_task(delete_temp_file(downloaded_path))
+                            if os.path.exists(download_path):
+                                os.remove(download_path)
+                            cobalt_success, _ = await cobalt_fallback_download(url, download_path)
+                            if cobalt_success and os.path.exists(download_path):
+                                downloaded_path = download_path
+                                media_type = 'video'
+                                title = "ویدیو دانلود شده"
+                        except Exception as cobalt_err:
+                            logger.warning(f"Guest Mode Cobalt fallback failed: {cobalt_err}")
+
+                # 3. Serve via VPS URL and construct results
+                if downloaded_path and os.path.exists(downloaded_path):
+                    is_img = False
+                    try:
+                        from PIL import Image
+                        with Image.open(downloaded_path) as img:
+                            is_img = True
+                    except Exception:
+                        pass
+                    
+                    if is_img:
+                        media_type = 'photo'
+                    
+                    file_size = os.path.getsize(downloaded_path)
+                    file_basename = os.path.basename(downloaded_path)
+                    
+                    base_webapp = config.WEBAPP_URL.rstrip('/')
+                    public_media_url = f"{base_webapp}/temp/{file_basename}"
+                    
+                    caption = format_media_caption(title, url, platform, media_type)
+                    
+                    # Log bandwidth usage (both download and upload, since Telegram fetches it from the VPS)
+                    asyncio.create_task(database.log_bandwidth(config.DB_FILE, file_size, file_size, platform, "guest"))
+                    
+                    # Queue file deletion task after 5 minutes
+                    async def delete_temp_file(path: str):
+                        await asyncio.sleep(300)
+                        if os.path.exists(path):
+                            try:
+                                os.remove(path)
+                                logger.info(f"Cleaned up guest temp file: {path}")
+                            except Exception as cleanup_err:
+                                logger.error(f"Failed to delete guest temp file {path}: {cleanup_err}")
+                    asyncio.create_task(delete_temp_file(downloaded_path))
+                    
+                    if media_type == 'photo':
+                        result = {
+                            "type": "photo",
+                            "id": str(uuid.uuid4()),
+                            "photo_url": public_media_url,
+                            "thumbnail_url": public_media_url,
+                            "caption": caption,
+                            "parse_mode": "HTML",
+                            "title": title or "عکس دانلود شده"
+                        }
+                    else:
+                        result = {
+                            "type": "video",
+                            "id": str(uuid.uuid4()),
+                            "video_url": public_media_url,
+                            "mime_type": "video/mp4",
+                            "thumbnail_url": public_media_url,
+                            "title": title or "ویدیو دانلود شده",
+                            "caption": caption,
+                            "parse_mode": "HTML"
+                        }
+
+            except Exception as proc_err:
+                logger.error(f"Failed to process guest media via local hosting: {proc_err}")
+                if downloaded_path and os.path.exists(downloaded_path):
+                    try:
+                        os.remove(downloaded_path)
+                    except:
+                        pass
+
+        # Step 3: Final fallback to direct links if local hosting is disabled or failed
+        if not result:
+            media_info = await get_direct_media_link(url)
+            direct_link = media_info.get('url') if media_info else url
+            if direct_link == url:
+                msg_text = f"📥 <b>لینک مستقیم دانلود مدیا:</b>\n\n🔗 <a href='{url}'>لینک مستقیم پست</a>"
+            else:
+                msg_text = f"📥 <b>لینک مستقیم دانلود مدیا:</b>\n\n🔗 <a href='{direct_link}'>لینک مستقیم دانلود ویدیو</a>\n\n🔗 <a href='{url}'>لینک مستقیم پست</a>"
                 
-                if media_type == 'photo':
-                    result = {
-                        "type": "photo",
-                        "id": str(uuid.uuid4()),
-                        "photo_url": public_media_url,
-                        "thumbnail_url": public_media_url,
-                        "caption": caption,
-                        "parse_mode": "HTML",
-                        "title": title or "عکس دانلود شده"
-                    }
-                else:
-                    result = {
-                        "type": "video",
-                        "id": str(uuid.uuid4()),
-                        "video_url": public_media_url,
-                        "mime_type": "video/mp4",
-                        "thumbnail_url": public_media_url,
-                        "title": title or "ویدیو دانلود شده",
-                        "caption": caption,
-                        "parse_mode": "HTML"
-                    }
-
-        except Exception as proc_err:
-            logger.error(f"Failed to process guest media via local hosting: {proc_err}")
-            if downloaded_path and os.path.exists(downloaded_path):
-                try:
-                    os.remove(downloaded_path)
-                except:
-                    pass
-
-    # Fallback to direct links if local hosting is disabled or failed
-    if not result:
-        media_info = await get_direct_media_link(url)
-        direct_link = media_info.get('url') if media_info else url
-        if direct_link == url:
-            msg_text = f"📥 <b>لینک مستقیم دانلود مدیا:</b>\n\n🔗 <a href='{url}'>لینک مستقیم پست</a>"
-        else:
-            msg_text = f"📥 <b>لینک مستقیم دانلود مدیا:</b>\n\n🔗 <a href='{direct_link}'>لینک مستقیم دانلود ویدیو</a>\n\n🔗 <a href='{url}'>لینک مستقیم پست</a>"
-            
-        result = {
-            "type": "article",
-            "id": str(uuid.uuid4()),
-            "title": "🔗 ارسال لینک مستقیم دانلود",
-            "description": "ارسال لینک پست برای دانلود مستقیم",
-            "input_message_content": {
-                "message_text": msg_text,
-                "parse_mode": "HTML",
-                "disable_web_page_preview": False
+            result = {
+                "type": "article",
+                "id": str(uuid.uuid4()),
+                "title": "🔗 ارسال لینک مستقیم دانلود",
+                "description": "ارسال لینک پست برای دانلود مستقیم",
+                "input_message_content": {
+                    "message_text": msg_text,
+                    "parse_mode": "HTML",
+                    "disable_web_page_preview": False
+                }
             }
+
+        # Send final result (from Step 2 or Step 3)
+        payload = {
+            "guest_query_id": guest_query_id,
+            "result": json.dumps(result)
         }
         
-    import aiohttp
-    import json
-    endpoint = f"https://api.telegram.org/bot{config.TELEGRAM_TOKEN}/answerGuestQuery"
-    payload = {
-        "guest_query_id": guest_query_id,
-        "result": json.dumps(result)
-    }
-    
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(endpoint, json=payload, timeout=15) as resp:
-                if resp.status == 200:
-                    logger.info(f"Successfully answered guest query {guest_query_id}")
-                else:
-                    err_text = await resp.text()
-                    logger.error(f"Failed to answer guest query {guest_query_id}: HTTP {resp.status} - {err_text}")
-    except Exception as e:
-        logger.error(f"Error answering guest query {guest_query_id}: {e}")
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(endpoint, json=payload, timeout=15) as resp:
+                    if resp.status == 200:
+                        logger.info(f"Successfully answered guest query {guest_query_id} (fallback mode)")
+                    else:
+                        err_text = await resp.text()
+                        logger.error(f"Failed to answer guest query {guest_query_id} in fallback: HTTP {resp.status} - {err_text}")
+        except Exception as e:
+            logger.error(f"Error answering guest query {guest_query_id} in fallback: {e}")
