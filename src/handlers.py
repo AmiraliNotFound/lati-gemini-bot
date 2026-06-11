@@ -258,20 +258,10 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Cheeky entry point command greeting using dynamic user identification."""
     if update.message:
         sender_name = update.message.from_user.first_name or "رفیق"
-        is_private = update.message.chat.type == "private"
-        
-        reply_markup = None
         text = f"بنال {sender_name} کارت چیه؟ تگ کن یا ریپلای بزن جوابتو بدم 🗿🤙"
         
-        if is_private:
-            keyboard = [
-                [InlineKeyboardButton("🔗 سورس ربات (گیت‌هاب)", url="https://github.com/AmiraliNotFound/lati-gemini-bot")]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
         await update.message.reply_text(
             text, 
-            reply_markup=reply_markup,
             parse_mode="Markdown",
             disable_web_page_preview=True
         )
@@ -305,7 +295,15 @@ async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "🔹 /admin : باز کردن پنل مدیریت وب"
             )
             
-        await update.message.reply_text(help_text, parse_mode="Markdown")
+        reply_markup = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔗 سورس ربات (گیت‌هاب)", url="https://github.com/AmiraliNotFound/lati-gemini-bot")]
+        ])
+            
+        await update.message.reply_text(
+            help_text,
+            reply_markup=reply_markup,
+            parse_mode="Markdown"
+        )
 
 async def ask_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
