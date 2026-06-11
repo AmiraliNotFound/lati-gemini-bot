@@ -528,7 +528,11 @@ async def setup_server(bot_app):
     cors.add(app.router.add_post('/api/chat/alert', alert_chat_handler))
     cors.add(app.router.add_get('/api/chat/top_users', get_top_users_handler))
     cors.add(app.router.add_get('/api/model_limits', get_model_limits))
-    cors.add(app.router.add_post('/api/chat/send_profile_link', send_profile_link_handler))
+    # Serve temporary downloads securely for Telegram guest mode fetches
+    temp_dir = os.path.join(os.path.dirname(__file__), "..", "temp_downloads")
+    if not os.path.exists(temp_dir):
+        os.makedirs(temp_dir)
+    app.router.add_static('/temp', temp_dir, name='temp_downloads', show_index=False)
 
     # Serve static frontend files and SPA root
     app.router.add_get('/', index_handler)

@@ -1488,6 +1488,9 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
                                 parse_mode="HTML",
                                 reply_to_message_id=update.message.message_id
                             )
+                    # Log bandwidth usage (photo)
+                    file_size = os.path.getsize(temp_img_path) if os.path.exists(temp_img_path) else 0
+                    asyncio.create_task(database.log_bandwidth(config.DB_FILE, file_size, file_size, platform, "dm"))
                     return True
                 except Exception as send_err:
                     logger.error(f"Failed to send photo: {send_err}")
@@ -1527,6 +1530,9 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
                         )
                         if thumb_file:
                             thumb_file.close()
+                    # Log bandwidth usage (video)
+                    file_size = os.path.getsize(path) if os.path.exists(path) else 0
+                    asyncio.create_task(database.log_bandwidth(config.DB_FILE, file_size, file_size, platform, "dm"))
                     return True
                 except Exception as send_err:
                     logger.error(f"Failed to send video: {send_err}")
@@ -1619,6 +1625,9 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
                                     f.close()
                                 except:
                                     pass
+                    # Log bandwidth usage (Instagram dedicated)
+                    total_ig_size = sum(os.path.getsize(it['path']) for it in items if os.path.exists(it['path']))
+                    asyncio.create_task(database.log_bandwidth(config.DB_FILE, total_ig_size, total_ig_size, "instagram", "dm"))
                     await status_msg.delete()
                     return
             except Exception as ig_err:
@@ -2222,7 +2231,6 @@ async def handle_guest_message(update: Update, context: ContextTypes.DEFAULT_TYP
         logger.error(f"Failed to query admin chat for guest upload: {db_err}")
 
     media_info = None
-    file_id = None
     media_type = None
     title = ""
     downloaded_path = None
@@ -2235,12 +2243,22 @@ async def handle_guest_message(update: Update, context: ContextTypes.DEFAULT_TYP
     elif "youtube.com" in url or "youtu.be" in url:
         platform = "youtube"
 
-    if admin_cid:
-        temp_filename = f"guest_{uuid.uuid4().hex}"
+    # Only attempt VPS temp hosting if WEBAPP_URL is configured
+    if config.WEBAPP_URL:
+        temp_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "temp_downloads")
+        if not os.path.exists(temp_dir):
+            try:
+                os.makedirs(temp_dir)
+            except Exception as mkdir_err:
+                logger.error(f"Failed to create temp_downloads dir: {mkdir_err}")
+                
+        # Generate unique temp filename
+        uuid_hex = uuid.uuid4().hex
+        
         cookies_data_path = os.path.join(os.path.dirname(config.DB_FILE), "cookies.txt")
         cookies_root_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "cookies.txt")
         cookies_path = cookies_data_path if os.path.exists(cookies_data_path) else (cookies_root_path if os.path.exists(cookies_root_path) else None)
-
+        
         try:
             # 1. Instagram download (dedicated)
             if platform == "instagram":
@@ -2248,7 +2266,10 @@ async def handle_guest_message(update: Update, context: ContextTypes.DEFAULT_TYP
                     items, metadata = await download_instagram_post(url, cookies_path)
                     if items:
                         first_item = items[0]
-                        downloaded_path = first_item['path']
+                        ext = os.path.splitext(first_item['path'])[1] or (".jpg" if first_item['type'] == "photo" else ".mp4")
+                        target_path = os.path.join(temp_dir, f"guest_{uuid_hex}{ext}")
+                        os.rename(first_item['path'], target_path)
+                        downloaded_path = target_path
                         media_type = first_item['type']
                         title = metadata.get('caption', '') or "Instagram Post"
                         # Clean up other items if carousel
@@ -2260,12 +2281,13 @@ async def handle_guest_message(update: Update, context: ContextTypes.DEFAULT_TYP
 
             # 2. General downloader (yt-dlp or Cobalt) if not Instagram or if Instagram dedicated failed
             if not downloaded_path:
-                download_path = f"{temp_filename}.mp4"
+                download_path = os.path.join(temp_dir, f"guest_{uuid_hex}.mp4")
                 # Try yt-dlp first
                 try:
                     video_metadata = await asyncio.to_thread(sync_download_video, url, download_path)
                     if os.path.exists(download_path):
                         downloaded_path = download_path
+                        media_type = 'video'
                         title = video_metadata.get('title', '') if video_metadata else ''
                 except Exception as ytdl_err:
                     logger.warning(f"Guest Mode yt-dlp failed: {ytdl_err}")
@@ -2278,11 +2300,12 @@ async def handle_guest_message(update: Update, context: ContextTypes.DEFAULT_TYP
                         cobalt_success, _ = await cobalt_fallback_download(url, download_path)
                         if cobalt_success and os.path.exists(download_path):
                             downloaded_path = download_path
+                            media_type = 'video'
                             title = "ویدیو دانلود شده"
                     except Exception as cobalt_err:
                         logger.warning(f"Guest Mode Cobalt failed: {cobalt_err}")
 
-            # 3. Upload to Telegram via admin chat and get file_id
+            # 3. Serve via VPS URL and construct results
             if downloaded_path and os.path.exists(downloaded_path):
                 is_img = False
                 try:
@@ -2294,74 +2317,60 @@ async def handle_guest_message(update: Update, context: ContextTypes.DEFAULT_TYP
                 
                 if is_img:
                     media_type = 'photo'
-                    with open(downloaded_path, 'rb') as photo:
-                        sent_msg = await context.bot.send_photo(chat_id=admin_cid, photo=photo)
-                        file_id = sent_msg.photo[-1].file_id
+                
+                file_size = os.path.getsize(downloaded_path)
+                file_basename = os.path.basename(downloaded_path)
+                
+                base_webapp = config.WEBAPP_URL.rstrip('/')
+                public_media_url = f"{base_webapp}/temp/{file_basename}"
+                
+                caption = format_media_caption(title, url, platform, media_type)
+                
+                # Log bandwidth usage (both download and upload, since Telegram fetches it from the VPS)
+                asyncio.create_task(database.log_bandwidth(config.DB_FILE, file_size, file_size, platform, "guest"))
+                
+                # Queue file deletion task after 5 minutes (300 seconds)
+                async def delete_temp_file(path: str):
+                    await asyncio.sleep(300)
+                    if os.path.exists(path):
+                        try:
+                            os.remove(path)
+                            logger.info(f"Cleaned up guest temp file: {path}")
+                        except Exception as cleanup_err:
+                            logger.error(f"Failed to delete guest temp file {path}: {cleanup_err}")
+                asyncio.create_task(delete_temp_file(downloaded_path))
+                
+                if media_type == 'photo':
+                    result = {
+                        "type": "photo",
+                        "id": str(uuid.uuid4()),
+                        "photo_url": public_media_url,
+                        "thumbnail_url": public_media_url,
+                        "caption": caption,
+                        "parse_mode": "HTML",
+                        "title": title or "عکس دانلود شده"
+                    }
                 else:
-                    media_type = 'video'
-                    thumb_filename = f"thumb_{uuid.uuid4().hex}.jpg"
-                    has_thumb = await asyncio.to_thread(generate_video_thumbnail, downloaded_path, thumb_filename)
-                    metadata = await asyncio.to_thread(get_video_metadata, downloaded_path)
-                    duration = metadata.get("duration")
-                    width = metadata.get("width")
-                    height = metadata.get("height")
-                    
-                    with open(downloaded_path, 'rb') as video:
-                        thumb_file = None
-                        if has_thumb and os.path.exists(thumb_filename):
-                            thumb_file = open(thumb_filename, 'rb')
-                        
-                        sent_msg = await context.bot.send_video(
-                            chat_id=admin_cid,
-                            video=video,
-                            duration=duration,
-                            width=width,
-                            height=height,
-                            thumbnail=thumb_file,
-                            supports_streaming=True
-                        )
-                        file_id = sent_msg.video.file_id
-                        if thumb_file:
-                            thumb_file.close()
-                        if os.path.exists(thumb_filename):
-                            os.remove(thumb_filename)
-                            
-                try:
-                    await context.bot.delete_message(chat_id=admin_cid, message_id=sent_msg.message_id)
-                except Exception as del_err:
-                    logger.warning(f"Failed to delete guest temp upload message: {del_err}")
+                    result = {
+                        "type": "video",
+                        "id": str(uuid.uuid4()),
+                        "video_url": public_media_url,
+                        "mime_type": "video/mp4",
+                        "thumbnail_url": public_media_url,
+                        "title": title or "ویدیو دانلود شده",
+                        "caption": caption,
+                        "parse_mode": "HTML"
+                    }
 
-        except Exception as upload_err:
-            logger.error(f"Failed to process/upload media for guest query: {upload_err}")
-        finally:
+        except Exception as proc_err:
+            logger.error(f"Failed to process guest media via local hosting: {proc_err}")
             if downloaded_path and os.path.exists(downloaded_path):
                 try:
                     os.remove(downloaded_path)
-                except Exception as cleanup_err:
-                    logger.error(f"Failed to clean up guest file {downloaded_path}: {cleanup_err}")
+                except:
+                    pass
 
-    # Build result
-    result = None
-    if file_id and media_type:
-        caption = format_media_caption(title, url, platform, media_type)
-        if media_type == 'photo':
-            result = {
-                "type": "photo",
-                "id": str(uuid.uuid4()),
-                "photo_file_id": file_id,
-                "caption": caption,
-                "parse_mode": "HTML"
-            }
-        elif media_type == 'video':
-            result = {
-                "type": "video",
-                "id": str(uuid.uuid4()),
-                "video_file_id": file_id,
-                "title": title or "ویدیو دانلود شده",
-                "caption": caption,
-                "parse_mode": "HTML"
-            }
-            
+    # Fallback to direct links if local hosting is disabled or failed
     if not result:
         media_info = await get_direct_media_link(url)
         direct_link = media_info.get('url') if media_info else url

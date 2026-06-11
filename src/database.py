@@ -213,13 +213,32 @@ async def get_db_stats(db_path: str) -> dict:
     """Computes stats from the local SQLite database for the admin panel."""
     stats = {}
     if not os.path.exists(db_path):
-        return {"total_messages": 0, "total_chats": 0, "db_size_kb": 0}
+        return {
+            "total_messages": 0,
+            "total_chats": 0,
+            "db_size_kb": 0,
+            "total_downloaded_bytes": 0,
+            "total_uploaded_bytes": 0
+        }
         
     async with aiosqlite.connect(db_path) as db:
         async with db.execute("SELECT COUNT(*) FROM messages") as cursor:
             stats["total_messages"] = (await cursor.fetchone())[0]
         async with db.execute("SELECT COUNT(DISTINCT chat_id) FROM messages") as cursor:
             stats["total_chats"] = (await cursor.fetchone())[0]
+            
+        try:
+            async with db.execute("SELECT SUM(bytes_downloaded), SUM(bytes_uploaded) FROM bandwidth_usage") as cursor:
+                row = await cursor.fetchone()
+                if row:
+                    stats["total_downloaded_bytes"] = row[0] or 0
+                    stats["total_uploaded_bytes"] = row[1] or 0
+                else:
+                    stats["total_downloaded_bytes"] = 0
+                    stats["total_uploaded_bytes"] = 0
+        except Exception:
+            stats["total_downloaded_bytes"] = 0
+            stats["total_uploaded_bytes"] = 0
             
     size_bytes = os.path.getsize(db_path)
     stats["db_size_kb"] = round(size_bytes / 1024, 2)
@@ -636,6 +655,31 @@ async def log_api_request(db_path: str, model_id: str, request_type: str, status
             await db.commit()
     except Exception as e:
         logger.error(f"Failed to log API request: {e}")
+
+
+async def log_bandwidth(db_path: str, bytes_downloaded: int, bytes_uploaded: int, platform: str, mode: str):
+    """Logs media download and upload sizes for VPS bandwidth tracking."""
+    try:
+        async with aiosqlite.connect(db_path) as db:
+            await db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS bandwidth_usage (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    bytes_downloaded INTEGER,
+                    bytes_uploaded INTEGER,
+                    platform TEXT,
+                    mode TEXT
+                )
+                """
+            )
+            await db.execute(
+                "INSERT INTO bandwidth_usage (bytes_downloaded, bytes_uploaded, platform, mode) VALUES (?, ?, ?, ?)",
+                (bytes_downloaded, bytes_uploaded, platform, mode)
+            )
+            await db.commit()
+    except Exception as e:
+        logger.error(f"Failed to log bandwidth usage: {e}")
 
 
 

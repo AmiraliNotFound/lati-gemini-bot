@@ -10,9 +10,17 @@ const API_BASE = import.meta.env.DEV ? 'http://localhost:8080/api' : '/api';
 const initData = window.Telegram?.WebApp?.initData || "";
 axios.defaults.headers.common['Authorization'] = `Bearer ${initData}`;
 
+const formatBytes = (bytes) => {
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+};
+
 function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [stats, setStats] = useState({ total_messages: 0, total_chats: 0, db_size_kb: 0 });
+  const [stats, setStats] = useState({ total_messages: 0, total_chats: 0, db_size_kb: 0, total_downloaded_bytes: 0, total_uploaded_bytes: 0 });
   const [chats, setChats] = useState([]);
   const [specials, setSpecials] = useState([]);
   const [blocked, setBlocked] = useState([]);
@@ -550,6 +558,14 @@ function App() {
                 <div className="stat-box">
                   <div className="stat-value">{stats.total_messages}</div>
                   <div className="stat-label">Messages Processed</div>
+                </div>
+                <div className="stat-box">
+                  <div className="stat-value">{formatBytes(stats.total_downloaded_bytes || 0)}</div>
+                  <div className="stat-label">Bandwidth Downloaded</div>
+                </div>
+                <div className="stat-box">
+                  <div className="stat-value">{formatBytes(stats.total_uploaded_bytes || 0)}</div>
+                  <div className="stat-label">Bandwidth Uploaded</div>
                 </div>
                 <div className="stat-box" style={{gridColumn: 'span 2'}}>
                   <div className="stat-value">{stats.db_size_kb} KB</div>
