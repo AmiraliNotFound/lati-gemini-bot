@@ -705,27 +705,7 @@ function App() {
                               <div className="item-name" style={{display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6}}>
                                 {chat.type === 'private' ? (
                                   <div style={{display: 'inline-flex', alignItems: 'center', gap: 8}}>
-                                    {(() => {
-                                      const profileLink = chat.username 
-                                        ? `https://t.me/${chat.username}` 
-                                        : `tg://user?id=${chat.chat_id}`;
-                                      return (
-                                        <a 
-                                          href={profileLink} 
-                                          onClick={(e) => {
-                                            if (window.Telegram?.WebApp?.openTelegramLink) {
-                                              e.preventDefault();
-                                              window.Telegram.WebApp.openTelegramLink(profileLink);
-                                            }
-                                          }}
-                                          style={{color: 'var(--tg-theme-link-color)', textDecoration: 'none', fontWeight: 'bold'}}
-                                          onMouseEnter={(e) => e.target.style.textDecoration = 'underline'}
-                                          onMouseLeave={(e) => e.target.style.textDecoration = 'none'}
-                                        >
-                                          {chat.name}
-                                        </a>
-                                      );
-                                    })()}
+                                    <span style={{fontWeight: 'bold'}}>{chat.name}</span>
                                     <button 
                                       className="btn" 
                                       style={{

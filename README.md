@@ -38,6 +38,7 @@ The bot is calibrated out-of-the-box with a witty, teasing, and sarcastic Persia
 - **Support Inbox**: Users can write `/support <message>` in DMs. The message alongside their details is forwarded to all registered admins.
 - **Admin `/reply` Command**: Admins can easily reply back to any support ticket using `/reply <user_id> <message>` to chat with users.
 - **Audio Transcription**: Users can reply to any voice note with `/transcribe` (or `/transcribe@BotUsername` in groups) to receive a Persian speech-to-text translation.
+- **User Management Utilities**: Admins can fetch secure direct user profile shortcuts for active DM contacts from the dashboard.
 
 ### 7. 📊 Admin WebApp Dashboard
 A React-based GUI console built directly inside the Telegram interface featuring Dark Mode, glassmorphism design, and smooth slide drawers:

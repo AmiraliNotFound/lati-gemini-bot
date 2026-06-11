@@ -465,11 +465,10 @@ async def send_profile_link_handler(request):
         return web.json_response({"status": "error", "reason": "Bot application not running"}, status=500)
         
     try:
-        # Construct message and inline keyboard buttons (which are always clickable, unlike text deep links)
+        # Construct message and inline keyboard button (which is always clickable, unlike text deep links)
         from telegram import InlineKeyboardButton, InlineKeyboardMarkup
         keyboard = [
-            [InlineKeyboardButton(text=f"👤 Open {target_name}'s Profile", url=f"tg://user?id={target_id}")],
-            [InlineKeyboardButton(text="💬 Open Chat Window", url=f"tg://openmessage?user_id={target_id}")]
+            [InlineKeyboardButton(text=f"👤 Open {target_name}'s Profile", url=f"tg://user?id={target_id}")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         message_text = f"🔗 *User Profile Link Requested*\nName: {target_name}\nID: `{target_id}`"
