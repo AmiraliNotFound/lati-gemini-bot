@@ -28,7 +28,8 @@ The bot is calibrated out-of-the-box with a witty, teasing, and sarcastic Persia
 - **Select Dropdown drawer**: Admins can assign group chats specific prompt presets or type a custom unique instruction override (saving to `custom_system_instruction`) inside the Chat drawer. 
 - **Dynamic Priority Logic**: The bot resolves system instructions in the following order: VIP override > Group custom preset > Global default system prompt.
 
-### 5. 📥 High-Speed Video & Album Downloader with Stream Fallback
+### 5. 📥 High-Speed Video & Album Downloader with Guest Bots Support
+- **Guest Bots Mode (Telegram API 10.0+)**: Seamlessly downloads media in any private 1-to-1 chat or group chat without being added as a member. Simply enable Guest Mode in BotFather, then summon the bot using `@bot_username <link>` or by replying to any message containing a link with `@bot_username`. The bot will directly process and send the downloaded file back to the chat.
 - **Inline Previews & Streaming**: Automatically detects Instagram, YouTube, Pinterest, and Twitter/X links in messages. Utilizes `yt-dlp` to download media, queries metadata via `ffprobe` (to extract width, height, and duration), and generates a thumbnail using `ffmpeg`. Re-uploads the file to Telegram enabling instant in-app streaming.
 - **Unified Photo & Video Processing**: Refactored downloader pipeline inspects downloaded binaries dynamically via `Pillow` (PIL) to determine if they contain image data or video formats. Automatically routes content to the correct Telegram APIs (`send_photo`, `send_animation` for GIFs, or `send_video`).
 - **Instagram Carousel & Album Downloader**: Handles multiple-media Instagram posts (photos and videos) and sends them to Telegram in a single Media Group (album format) with rich metadata, including the uploader's username, post caption, and direct link. Incorporates automatic temporary disk cleanup for all downloaded assets.

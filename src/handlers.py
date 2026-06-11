@@ -339,6 +339,7 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Provides a list of bot capabilities."""
     if update.message:
+        bot_username = context.bot.username or "bot_username"
         help_text = (
             "🤖 **راهنمای ربات لاتی جمنای**\n\n"
             "من یه ربات هوشمندم که می‌تونم متن بخونم، عکس ببینم، و ویس گوش بدم. فقط کافیه تو گروه روم ریپلای کنی یا اسممو بیاری تا جوابتو بدم.\n\n"
@@ -349,8 +350,11 @@ async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "🔹 /ask <سوال> : پرسیدن سوال مستقیم بدون قاتی کردن با تاریخچه چت قبلی\n"
             "🔹 /transcribe : تبدیل ویس ریپلای شده به متن (کافیست روی ویس ریپلای کنید)\n"
             "🔹 /support <پیام> : ارتباط با پشتیبانی و ارسال پیام به ادمین (فقط در چت خصوصی)\n\n"
-            "🎥 **دانلودر هوشمند:**\n"
-            "اگه لینک **اینستاگرام**، **یوتوب** یا **پینترست** بفرستی، مدیا (ویدیو یا عکس) رو مستقیم برات همینجا دانلود می‌کنم و می‌فرستم!"
+            "🎥 **دانلودر هوشمند و حالت مهمان (Guest Mode):**\n"
+            "اگه لینک **اینستاگرام**، **یوتوب** یا **پینترست** بفرستی، مدیا (ویدیو یا عکس) رو مستقیم برات همینجا دانلود می‌کنم و می‌فرستم!\n\n"
+            "حتی می‌تونی تو چت‌های ۲ نفره با دوستات یا هر گروهی بدون اینکه من عضو باشم ازم استفاده کنی! فقط کافیه:\n"
+            f"۱. لینک مدیا رو بفرستی و روش ریپلای کنی و بنویسی `@{bot_username}`\n"
+            f"۲. یا مستقیماً بفرستی: `@{bot_username} <لینک>`"
         )
         
         is_admin = False
@@ -2150,11 +2154,25 @@ async def handle_guest_message(update: Update, context: ContextTypes.DEFAULT_TYP
         guest_query_id = getattr(guest_msg, 'guest_query_id', None)
         user_text = getattr(guest_msg, 'text', '') or getattr(guest_msg, 'caption', '') or ''
         
-    if not guest_query_id or not user_text:
+    if not guest_query_id:
         return
         
     # Check if the query contains a supported link
     url_match = re.search(r"(https?://(?:www\.)?(?:instagram\.com|youtube\.com|youtu\.be|x\.com|twitter\.com|pinterest\.com|pin\.it)[^\s]+)", user_text)
+    
+    # If not found, check if it's a reply to a message containing the link
+    if not url_match:
+        if isinstance(guest_msg, dict):
+            reply_to = guest_msg.get('reply_to_message')
+            if reply_to:
+                reply_text = reply_to.get('text') or reply_to.get('caption') or ''
+                url_match = re.search(r"(https?://(?:www\.)?(?:instagram\.com|youtube\.com|youtu\.be|x\.com|twitter\.com|pinterest\.com|pin\.it)[^\s]+)", reply_text)
+        else:
+            reply_to = getattr(guest_msg, 'reply_to_message', None)
+            if reply_to:
+                reply_text = getattr(reply_to, 'text', '') or getattr(reply_to, 'caption', '') or ''
+                url_match = re.search(r"(https?://(?:www\.)?(?:instagram\.com|youtube\.com|youtu\.be|x\.com|twitter\.com|pinterest\.com|pin\.it)[^\s]+)", reply_text)
+                
     if not url_match:
         return
         
