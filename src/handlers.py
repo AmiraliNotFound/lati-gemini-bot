@@ -2022,7 +2022,7 @@ async def get_direct_media_link(url: str) -> dict:
     payload = {"url": url}
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.post("https://api.cobalt.tools/api/json", json=payload, headers=headers, timeout=5) as resp:
+            async with session.post("https://api.cobalt.tools/api/json", json=payload, headers=headers, timeout=15) as resp:
                 if resp.status == 200:
                     data = await resp.json()
                     status = data.get("status")
@@ -2181,8 +2181,15 @@ async def handle_guest_message(update: Update, context: ContextTypes.DEFAULT_TYP
     
     media_info = await get_direct_media_link(url)
     
+    # If the media URL is hosted on googlevideo/youtube (IP-locked), Telegram will fail to fetch it.
+    # We must force fallback to sending a direct download link.
+    if media_info and media_info.get('url'):
+        media_url = media_info.get('url')
+        if "googlevideo.com" in media_url or "youtube.com" in media_url or "youtu.be" in media_url:
+            media_info['type'] = 'text'
+            
     result = None
-    if media_info:
+    if media_info and media_info.get('type') in ['photo', 'video']:
         media_type = media_info.get('type')
         media_url = media_info.get('url')
         thumb_url = media_info.get('thumbnail') or media_url
@@ -2222,13 +2229,19 @@ async def handle_guest_message(update: Update, context: ContextTypes.DEFAULT_TYP
             
     if not result:
         # Fallback to an article (text message) with the direct download link
+        direct_link = media_info.get('url') if media_info else url
+        if direct_link == url:
+            msg_text = f"📥 <b>لینک مستقیم دانلود مدیا:</b>\n\n🔗 <a href='{url}'>لینک مستقیم پست</a>"
+        else:
+            msg_text = f"📥 <b>لینک مستقیم دانلود مدیا:</b>\n\n🔗 <a href='{direct_link}'>لینک مستقیم دانلود ویدیو</a>\n\n🔗 <a href='{url}'>لینک مستقیم پست</a>"
+            
         result = {
             "type": "article",
             "id": str(uuid.uuid4()),
             "title": "🔗 ارسال لینک مستقیم دانلود",
             "description": "ارسال لینک پست برای دانلود مستقیم",
             "input_message_content": {
-                "message_text": f"📥 <b>لینک مستقیم دانلود مدیا:</b>\n\n🔗 <a href='{url}'>لینک مستقیم پست</a>",
+                "message_text": msg_text,
                 "parse_mode": "HTML",
                 "disable_web_page_preview": False
             }
