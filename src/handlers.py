@@ -2209,56 +2209,161 @@ async def handle_guest_message(update: Update, context: ContextTypes.DEFAULT_TYP
     url = url_match.group(1)
     logger.info(f"Guest message link download requested for URL: {url} (query_id: {guest_query_id})")
     
-    media_info = await get_direct_media_link(url)
+    # Find a registered admin chat ID
+    admin_cid = None
+    try:
+        import aiosqlite
+        async with aiosqlite.connect(config.DB_FILE) as db:
+            async with db.execute("SELECT chat_id FROM admin_chats LIMIT 1") as cursor:
+                row = await cursor.fetchone()
+                if row:
+                    admin_cid = row[0]
+    except Exception as db_err:
+        logger.error(f"Failed to query admin chat for guest upload: {db_err}")
+
+    media_info = None
+    file_id = None
+    media_type = None
+    title = ""
+    downloaded_path = None
     
-    # If the media URL is hosted on googlevideo/youtube (IP-locked), Telegram will fail to fetch it.
-    # We must force fallback to sending a direct download link.
-    if media_info and media_info.get('url'):
-        media_url = media_info.get('url')
-        if "googlevideo.com" in media_url or "youtube.com" in media_url or "youtu.be" in media_url:
-            media_info['type'] = 'text'
-            
+    platform = "other"
+    if "instagram.com" in url:
+        platform = "instagram"
+    elif "pinterest.com" in url or "pin.it" in url:
+        platform = "pinterest"
+    elif "youtube.com" in url or "youtu.be" in url:
+        platform = "youtube"
+
+    if admin_cid:
+        temp_filename = f"guest_{uuid.uuid4().hex}"
+        cookies_data_path = os.path.join(os.path.dirname(config.DB_FILE), "cookies.txt")
+        cookies_root_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "cookies.txt")
+        cookies_path = cookies_data_path if os.path.exists(cookies_data_path) else (cookies_root_path if os.path.exists(cookies_root_path) else None)
+
+        try:
+            # 1. Instagram download (dedicated)
+            if platform == "instagram":
+                try:
+                    items, metadata = await download_instagram_post(url, cookies_path)
+                    if items:
+                        first_item = items[0]
+                        downloaded_path = first_item['path']
+                        media_type = first_item['type']
+                        title = metadata.get('caption', '') or "Instagram Post"
+                        # Clean up other items if carousel
+                        for it in items[1:]:
+                            if os.path.exists(it['path']):
+                                os.remove(it['path'])
+                except Exception as ig_err:
+                    logger.warning(f"Guest Instagram downloader failed: {ig_err}")
+
+            # 2. General downloader (yt-dlp or Cobalt) if not Instagram or if Instagram dedicated failed
+            if not downloaded_path:
+                download_path = f"{temp_filename}.mp4"
+                # Try yt-dlp first
+                try:
+                    video_metadata = await asyncio.to_thread(sync_download_video, url, download_path)
+                    if os.path.exists(download_path):
+                        downloaded_path = download_path
+                        title = video_metadata.get('title', '') if video_metadata else ''
+                except Exception as ytdl_err:
+                    logger.warning(f"Guest Mode yt-dlp failed: {ytdl_err}")
+
+                # Try Cobalt if yt-dlp failed
+                if not downloaded_path:
+                    try:
+                        if os.path.exists(download_path):
+                            os.remove(download_path)
+                        cobalt_success, _ = await cobalt_fallback_download(url, download_path)
+                        if cobalt_success and os.path.exists(download_path):
+                            downloaded_path = download_path
+                            title = "ویدیو دانلود شده"
+                    except Exception as cobalt_err:
+                        logger.warning(f"Guest Mode Cobalt failed: {cobalt_err}")
+
+            # 3. Upload to Telegram via admin chat and get file_id
+            if downloaded_path and os.path.exists(downloaded_path):
+                is_img = False
+                try:
+                    from PIL import Image
+                    with Image.open(downloaded_path) as img:
+                        is_img = True
+                except Exception:
+                    pass
+                
+                if is_img:
+                    media_type = 'photo'
+                    with open(downloaded_path, 'rb') as photo:
+                        sent_msg = await context.bot.send_photo(chat_id=admin_cid, photo=photo)
+                        file_id = sent_msg.photo[-1].file_id
+                else:
+                    media_type = 'video'
+                    thumb_filename = f"thumb_{uuid.uuid4().hex}.jpg"
+                    has_thumb = await asyncio.to_thread(generate_video_thumbnail, downloaded_path, thumb_filename)
+                    metadata = await asyncio.to_thread(get_video_metadata, downloaded_path)
+                    duration = metadata.get("duration")
+                    width = metadata.get("width")
+                    height = metadata.get("height")
+                    
+                    with open(downloaded_path, 'rb') as video:
+                        thumb_file = None
+                        if has_thumb and os.path.exists(thumb_filename):
+                            thumb_file = open(thumb_filename, 'rb')
+                        
+                        sent_msg = await context.bot.send_video(
+                            chat_id=admin_cid,
+                            video=video,
+                            duration=duration,
+                            width=width,
+                            height=height,
+                            thumbnail=thumb_file,
+                            supports_streaming=True
+                        )
+                        file_id = sent_msg.video.file_id
+                        if thumb_file:
+                            thumb_file.close()
+                        if os.path.exists(thumb_filename):
+                            os.remove(thumb_filename)
+                            
+                try:
+                    await context.bot.delete_message(chat_id=admin_cid, message_id=sent_msg.message_id)
+                except Exception as del_err:
+                    logger.warning(f"Failed to delete guest temp upload message: {del_err}")
+
+        except Exception as upload_err:
+            logger.error(f"Failed to process/upload media for guest query: {upload_err}")
+        finally:
+            if downloaded_path and os.path.exists(downloaded_path):
+                try:
+                    os.remove(downloaded_path)
+                except Exception as cleanup_err:
+                    logger.error(f"Failed to clean up guest file {downloaded_path}: {cleanup_err}")
+
+    # Build result
     result = None
-    if media_info and media_info.get('type') in ['photo', 'video']:
-        media_type = media_info.get('type')
-        media_url = media_info.get('url')
-        thumb_url = media_info.get('thumbnail') or media_url
-        title = media_info.get('title') or "دانلود مدیا"
-        
-        platform = "other"
-        if "instagram.com" in url:
-            platform = "instagram"
-        elif "pinterest.com" in url or "pin.it" in url:
-            platform = "pinterest"
-        elif "youtube.com" in url or "youtu.be" in url:
-            platform = "youtube"
-            
+    if file_id and media_type:
         caption = format_media_caption(title, url, platform, media_type)
-        
         if media_type == 'photo':
             result = {
                 "type": "photo",
                 "id": str(uuid.uuid4()),
-                "photo_url": media_url,
-                "thumbnail_url": thumb_url,
+                "photo_file_id": file_id,
                 "caption": caption,
-                "parse_mode": "HTML",
-                "title": title
+                "parse_mode": "HTML"
             }
         elif media_type == 'video':
             result = {
                 "type": "video",
                 "id": str(uuid.uuid4()),
-                "video_url": media_url,
-                "mime_type": "video/mp4",
-                "thumbnail_url": thumb_url,
-                "title": title,
+                "video_file_id": file_id,
+                "title": title or "ویدیو دانلود شده",
                 "caption": caption,
                 "parse_mode": "HTML"
             }
             
     if not result:
-        # Fallback to an article (text message) with the direct download link
+        media_info = await get_direct_media_link(url)
         direct_link = media_info.get('url') if media_info else url
         if direct_link == url:
             msg_text = f"📥 <b>لینک مستقیم دانلود مدیا:</b>\n\n🔗 <a href='{url}'>لینک مستقیم پست</a>"
