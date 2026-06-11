@@ -395,7 +395,7 @@ async def ask_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(parts) < 2 or not parts[1].strip():
         try:
             await update.message.reply_text(
-                "⚠️ لطفاً سوال خود را بعد از دستور بنویسید.\nمثال: `/ask پایتخت فرانسه کجاست؟`",
+                "⚠️ بنال ببینم چی می‌خوای بپرسی رفیق! سوالتو بعد دستور بنویس.\nمثال: `/ask پایتخت فرانسه کجاست؟` 🗿",
                 parse_mode="Markdown",
                 reply_to_message_id=update.message.message_id
             )
@@ -511,7 +511,7 @@ async def transcribe_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     replied_msg = update.message.reply_to_message
     if not replied_msg:
         await update.message.reply_text(
-            "⚠️ این دستور را باید روی یک پیام صوتی (ویس) ریپلای کنی! 🗿",
+            "⚠️ اسکل کردی مارو؟ این دستور رو باید روی یه ویس یا فایل صوتی ریپلای کنی! 🗿🤙",
             reply_to_message_id=update.message.message_id
         )
         return
@@ -520,13 +520,13 @@ async def transcribe_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     voice = replied_msg.voice or replied_msg.audio
     if not voice:
         await update.message.reply_text(
-            "⚠️ این پیام ویس نیست که بتونم متنش کنم! 🥱",
+            "⚠️ این پیام اصلاً ویس یا صوت نیست که بتونم متنش کنم! چشاتو باز کن 🥱🗿",
             reply_to_message_id=update.message.message_id
         )
         return
         
     status_msg = await update.message.reply_text(
-        "⏳ در حال دانلود و ترجمه صوت به متن... منتظر بمون...",
+        "⏳ دارم ویس رو گوش میدم و می‌نویسم... منتظر بمون... 🗿",
         reply_to_message_id=update.message.message_id
     )
     
@@ -586,7 +586,7 @@ async def transcribe_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     except Exception as e:
         logger.error(f"Error transcribing voice note: {e}")
         await database.log_error(config.DB_FILE, "TRANSCRIBE_ERROR", f"Failed to transcribe voice note: {e}", traceback.format_exc())
-        await status_msg.edit_text("❌ متأسفانه نتونستم متن این ویس رو بردارم. سرورها یاری نمی‌کنن 🚶‍♂️")
+        await status_msg.edit_text("❌ نشد ویس رو ترجمه کنم، انگار سرور ریده! یه بار دیگه امتحان کن 🗿🚶‍♂️")
 
 
 async def support_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -603,8 +603,8 @@ async def support_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     if not args:
         await update.message.reply_text(
-            "📝 برای ارسال پیام به ادمین، متنت رو بعد از دستور بنویس.\n\n"
-            "مثال: `/support سلام، ربات کار نمیکنه`",
+            "📝 حرفتو بعد از دستور بنویس تا بفرستم واسه ادمین‌ها.\n\n"
+            "مثال: `/support دمت گرم، ربات عالیه` 🗿🤙",
             parse_mode="Markdown"
         )
         return
@@ -631,8 +631,8 @@ async def support_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     if not admin_chat_ids:
         await update.message.reply_text(
-            "❌ متأسفانه در حال حاضر ارتباط برقرار نشد چون ادمین فعال ثبت‌نشده. "
-            "صبر کن تا یکی از ادمین‌ها دستور `/admin` رو بنویسه تا ثبت بشه. 🗿"
+            "❌ شرمنده رفیق، فعلاً ادمین فعالی ثبت نشده که پیامتو بفرستم براش. "
+            "بگو ادمین‌ها یه بار دستور `/admin` رو بزنن تا فعال بشن 🗿🚶‍♂️"
         )
         return
         
@@ -651,7 +651,7 @@ async def support_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if sent_count > 0:
         await update.message.reply_text("✅ پیام شما با موفقیت برای مدیریت ارسال شد. به زودی همینجا پاسخ داده خواهد شد.")
     else:
-        await update.message.reply_text("❌ مشکلی در ارسال پیام پیش آمد. لطفا بعدا امتحان کنید.")
+        await update.message.reply_text("❌ شرمنده، سیستم ارسال پیام پشتیبانی ریپ زد! بعداً دوباره تست کن 🚶‍♂️")
 
 
 async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -670,7 +670,7 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     if len(args) < 2:
         await update.message.reply_text(
-            "⚠️ استفاده نادرست. فرمت صحیح:\n"
+            "⚠️ فرمت دستور نادرست است. لطفاً به این شکل استفاده کنید:\n"
             "`/reply <user_id> <text>`",
             parse_mode="Markdown"
         )
@@ -689,10 +689,10 @@ async def reply_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         await update.message.reply_text(f"✅ پاسخ شما برای کاربر `{target_user_id}` ارسال شد.")
     except ValueError:
-        await update.message.reply_text("❌ خطا: شناسه کاربر باید عدد باشد.")
+        await update.message.reply_text("❌ خطا: شناسه کاربر (user_id) باید یک مقدار عددی معتبر باشد.")
     except Exception as send_err:
         logger.error(f"Failed to send admin reply to user {target_user_id_str}: {send_err}")
-        await update.message.reply_text(f"❌ خطا در ارسال پاسخ به کاربر: {send_err}")
+        await update.message.reply_text(f"❌ خطا: ارسال پاسخ به کاربر با مشکل مواجه شد. جزئیات:\n`{send_err}`")
 
 
 async def admin_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
