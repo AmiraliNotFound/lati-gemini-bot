@@ -54,7 +54,7 @@ try:
 except ImportError:
     edge_tts = None
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo, InputMediaPhoto, InputMediaVideo, InlineQueryResultVideo, InlineQueryResultPhoto, InlineQueryResultArticle, InputTextMessageContent
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo, InputMediaPhoto, InputMediaVideo
 from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 from google import genai
@@ -2129,24 +2129,41 @@ async def get_direct_media_link(url: str) -> dict:
         
     return {}
 
-async def handle_inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.inline_query:
+async def handle_any_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Intercepts and filters incoming updates for new Telegram API 10.0+ Guest Mode message interactions."""
+    if not update:
         return
-    query = update.inline_query.query.strip()
-    if not query:
+        
+    guest_msg = getattr(update, 'guest_message', None) or (update.api_kwargs.get('guest_message') if update.api_kwargs else None)
+    if guest_msg:
+        try:
+            await handle_guest_message(update, context, guest_msg)
+        except Exception as e:
+            logger.error(f"Error handling guest message update: {e}")
+
+async def handle_guest_message(update: Update, context: ContextTypes.DEFAULT_TYPE, guest_msg):
+    """Processes Guest Mode updates, extracts summoning links, and answers via answerGuestQuery."""
+    if isinstance(guest_msg, dict):
+        guest_query_id = guest_msg.get('guest_query_id')
+        user_text = guest_msg.get('text') or guest_msg.get('caption') or ''
+    else:
+        guest_query_id = getattr(guest_msg, 'guest_query_id', None)
+        user_text = getattr(guest_msg, 'text', '') or getattr(guest_msg, 'caption', '') or ''
+        
+    if not guest_query_id or not user_text:
         return
         
     # Check if the query contains a supported link
-    url_match = re.search(r"(https?://(?:www\.)?(?:instagram\.com|youtube\.com|youtu\.be|x\.com|twitter\.com|pinterest\.com|pin\.it)[^\s]+)", query)
+    url_match = re.search(r"(https?://(?:www\.)?(?:instagram\.com|youtube\.com|youtu\.be|x\.com|twitter\.com|pinterest\.com|pin\.it)[^\s]+)", user_text)
     if not url_match:
         return
         
     url = url_match.group(1)
-    logger.info(f"Inline query received for URL: {url}")
+    logger.info(f"Guest message link download requested for URL: {url} (query_id: {guest_query_id})")
     
     media_info = await get_direct_media_link(url)
     
-    results = []
+    result = None
     if media_info:
         media_type = media_info.get('type')
         media_url = media_info.get('url')
@@ -2164,45 +2181,56 @@ async def handle_inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE
         caption = format_media_caption(title, url, platform, media_type)
         
         if media_type == 'photo':
-            results.append(
-                InlineQueryResultPhoto(
-                    id=str(uuid.uuid4()),
-                    photo_url=media_url,
-                    thumbnail_url=thumb_url,
-                    caption=caption,
-                    parse_mode="HTML",
-                    title=title
-                )
-            )
+            result = {
+                "type": "photo",
+                "id": str(uuid.uuid4()),
+                "photo_url": media_url,
+                "thumbnail_url": thumb_url,
+                "caption": caption,
+                "parse_mode": "HTML",
+                "title": title
+            }
         elif media_type == 'video':
-            results.append(
-                InlineQueryResultVideo(
-                    id=str(uuid.uuid4()),
-                    video_url=media_url,
-                    mime_type="video/mp4",
-                    thumbnail_url=thumb_url,
-                    title=title,
-                    caption=caption,
-                    parse_mode="HTML"
-                )
-            )
+            result = {
+                "type": "video",
+                "id": str(uuid.uuid4()),
+                "video_url": media_url,
+                "mime_type": "video/mp4",
+                "thumbnail_url": thumb_url,
+                "title": title,
+                "caption": caption,
+                "parse_mode": "HTML"
+            }
             
-    # Always provide a fallback link sending article
-    fallback_text = f"📥 <b>لینک مستقیم دانلود مدیا:</b>\n\n🔗 <a href='{url}'>لینک مستقیم پست</a>"
-    results.append(
-        InlineQueryResultArticle(
-            id=str(uuid.uuid4()),
-            title="🔗 ارسال لینک مستقیم دانلود",
-            description="ارسال لینک پست برای دانلود مستقیم",
-            input_message_content=InputTextMessageContent(
-                message_text=fallback_text,
-                parse_mode="HTML",
-                disable_web_page_preview=False
-            )
-        )
-    )
+    if not result:
+        # Fallback to an article (text message) with the direct download link
+        result = {
+            "type": "article",
+            "id": str(uuid.uuid4()),
+            "title": "🔗 ارسال لینک مستقیم دانلود",
+            "description": "ارسال لینک پست برای دانلود مستقیم",
+            "input_message_content": {
+                "message_text": f"📥 <b>لینک مستقیم دانلود مدیا:</b>\n\n🔗 <a href='{url}'>لینک مستقیم پست</a>",
+                "parse_mode": "HTML",
+                "disable_web_page_preview": False
+            }
+        }
+        
+    import aiohttp
+    import json
+    endpoint = f"https://api.telegram.org/bot{config.TELEGRAM_TOKEN}/answerGuestQuery"
+    payload = {
+        "guest_query_id": guest_query_id,
+        "result": json.dumps(result)
+    }
     
     try:
-        await update.inline_query.answer(results, cache_time=300)
+        async with aiohttp.ClientSession() as session:
+            async with session.post(endpoint, json=payload, timeout=15) as resp:
+                if resp.status == 200:
+                    logger.info(f"Successfully answered guest query {guest_query_id}")
+                else:
+                    err_text = await resp.text()
+                    logger.error(f"Failed to answer guest query {guest_query_id}: HTTP {resp.status} - {err_text}")
     except Exception as e:
-        logger.error(f"Failed to answer inline query: {e}")
+        logger.error(f"Error answering guest query {guest_query_id}: {e}")
