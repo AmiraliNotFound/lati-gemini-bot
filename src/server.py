@@ -466,7 +466,7 @@ async def send_profile_link_handler(request):
         
     try:
         # Construct markdown link
-        message_text = f"🔗 *لینک پروفایل کاربر:*\n[{target_name}](tg://user?id={target_id})"
+        message_text = f"🔗 *User Profile Link:*\n[{target_name}](tg://user?id={target_id})"
         await app.bot.send_message(chat_id=admin_id, text=message_text, parse_mode="Markdown")
         return web.json_response({"status": "success"})
     except Exception as e:
