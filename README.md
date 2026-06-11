@@ -107,6 +107,17 @@ docker-compose up -d --build
 ```
 Your database and custom configurations will persist inside the local `./data` folder automatically. The Admin WebApp API will be exposed on port `8080`.
 
+> [!TIP]
+> **Docker Compose Buildx Bake Warning:**
+> If you encounter the warning:
+> `WARN [0000] Docker Compose is configured to build using Bake, but buildx isn't installed`
+> It means Docker Compose is attempting to use the modern Bake engine but the Buildx plugin is missing. You can resolve this in two ways:
+> 1. **Install Buildx Plugin (Recommended):** Run `sudo apt-get install docker-buildx-plugin -y` on your VPS.
+> 2. **Disable Bake integration:** Disable the Bake fallback by prepending `COMPOSE_BAKE=false` to your build/up command:
+>    ```bash
+>    COMPOSE_BAKE=false docker-compose up -d --build
+>    ```
+
 #### 4. Setup Secure HTTPS for WebApp (Cloudflare Tunnel)
 Telegram requires all WebApp Mini Apps to be served over HTTPS. You can easily set up a free Cloudflare Tunnel:
 1. Direct your domain (e.g. `admin.yourdomain.com`) to `http://localhost:8080` in your Cloudflare dashboard.

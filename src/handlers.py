@@ -1014,6 +1014,27 @@ async def cobalt_fallback_download(url: str, output_path: str) -> tuple[bool, st
         await database.log_error(config.DB_FILE, "DOWNLOAD_COBALT_ERROR", f"Cobalt fallback failed: {e}", traceback.format_exc())
     return False, None
 
+def clean_extracted_title(info: dict) -> str:
+    if not info:
+        return ""
+    title = info.get("title") or ""
+    description = info.get("description") or ""
+    
+    # Matches auto-generated/placeholder titles from Pinterest extractor
+    pattern = r"^pinterest\s+(video|photo|post|media|image|pin)\s+#\d+"
+    
+    if title and re.match(pattern, title.strip(), re.IGNORECASE):
+        if description and not re.match(pattern, description.strip(), re.IGNORECASE):
+            title_str = description.strip()
+        else:
+            title_str = ""
+    else:
+        title_str = title.strip() or description.strip()
+        
+    if len(title_str) > 800:
+        title_str = title_str[:800] + "..."
+    return title_str
+
 def sync_download_video(url: str, output_path: str) -> dict:
     if not yt_dlp:
         raise ImportError("yt_dlp is not installed")
@@ -1081,7 +1102,8 @@ def sync_download_video(url: str, output_path: str) -> dict:
                     with urllib.request.urlopen(req) as response, open(output_path, 'wb') as out_file:
                         out_file.write(response.read())
                     logger.info(f"Successfully downloaded format-less image from {img_url} to {output_path}")
-                    return {'title': info.get('title') or info.get('description') or '', 'url': info.get('webpage_url') or url}
+                    title = clean_extracted_title(info)
+                    return {'title': title, 'url': info.get('webpage_url') or url}
             
             filesize = info.get('filesize') or info.get('filesize_approx') or 0
             if filesize > 50 * 1024 * 1024:
@@ -1096,7 +1118,8 @@ def sync_download_video(url: str, output_path: str) -> dict:
         logger.info("Cookies defined. Attempting standard download.")
         with yt_dlp.YoutubeDL(ydl_opts_base) as ydl:
             info = ydl.extract_info(url, download=True)
-            return {'title': info.get('title') or '', 'url': info.get('webpage_url') or url}
+            title = clean_extracted_title(info)
+            return {'title': title, 'url': info.get('webpage_url') or url}
 
     # Use impersonation client for Instagram downloading to not be contingent on cookies
     if ImpersonateTarget:
@@ -1118,7 +1141,8 @@ def sync_download_video(url: str, output_path: str) -> dict:
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     info = ydl.extract_info(url, download=True)
                 logger.info(f"Download succeeded using impersonate target: {target}")
-                return {'title': info.get('title') or '', 'url': info.get('webpage_url') or url}
+                title = clean_extracted_title(info)
+                return {'title': title, 'url': info.get('webpage_url') or url}
             except Exception as e:
                 logger.warning(f"Download with impersonation target {target} failed: {e}")
                 last_err = e
@@ -1128,7 +1152,8 @@ def sync_download_video(url: str, output_path: str) -> dict:
         # Fallback to standard download if ImpersonateTarget is not imported
         with yt_dlp.YoutubeDL(ydl_opts_base) as ydl:
             info = ydl.extract_info(url, download=True)
-            return {'title': info.get('title') or '', 'url': info.get('webpage_url') or url}
+            title = clean_extracted_title(info)
+            return {'title': title, 'url': info.get('webpage_url') or url}
 
 import json
 
