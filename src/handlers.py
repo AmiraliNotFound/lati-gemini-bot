@@ -426,7 +426,11 @@ async def ask_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     model_id = custom_model if custom_model else config.runtime_config.get("MODEL_ID", "gemini-2.5-flash")
     
     # Determine System Instruction
-    system_instruction = config.runtime_config.get("SYSTEM_INSTRUCTION", "")
+    system_instruction = (
+        "You are a helpful, simple, and direct chatbot. Your task is to literally and accurately answer the user's question. "
+        "Do NOT use sarcasm, insults, jokes, or humiliation. Keep your answer concise, clear, and straight to the point without over-elaborating. "
+        "Respond in the same language as the user's question."
+    )
     timeout_threshold = float(config.runtime_config.get("TIMEOUT", 10.0))
     
     # Build content prompt (No history!)
