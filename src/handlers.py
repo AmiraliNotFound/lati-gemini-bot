@@ -1053,7 +1053,8 @@ def sync_download_video(url: str, output_path: str) -> dict:
     except ValueError as val_err:
         raise val_err
     except Exception as check_err:
-        logger.warning(f"Pre-download size check failed/skipped: {check_err}")
+        logger.error(f"Pre-download size check failed: {check_err}")
+        raise ValueError(f"Pre-download size check failed: {check_err}")
         
     if cookies_exist:
         logger.info("Cookies defined. Attempting standard download.")
