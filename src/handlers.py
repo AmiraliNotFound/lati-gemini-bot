@@ -1034,6 +1034,7 @@ def sync_download_video(url: str, output_path: str) -> dict:
         'format': 'best[ext=mp4][filesize<50M]/best[filesize<50M]/best[ext=mp4][filesize_approx<50M]/best[filesize_approx<50M]/best[ext=mp4]/best',
         'noplaylist': True,
         'quiet': True,
+        'ignore_no_formats_error': True,
         'max_filesize': 50000000,
         'socket_timeout': 15,
         'remote_components': ['ejs:github'],
@@ -1060,9 +1061,31 @@ def sync_download_video(url: str, output_path: str) -> dict:
         check_opts = ydl_opts_base.copy()
         with yt_dlp.YoutubeDL(check_opts) as ydl:
             info = ydl.extract_info(url, download=False)
+            
+            # Check if this is a format-less post (e.g. image Pin or image post)
+            formats = info.get('formats') or []
+            if not formats:
+                # It's an image post!
+                # Extract image URL
+                img_url = info.get('thumbnail')
+                if not img_url and info.get('thumbnails'):
+                    img_url = info['thumbnails'][-1].get('url')
+                    
+                if img_url:
+                    # Download the image directly to output_path
+                    import urllib.request
+                    req = urllib.request.Request(
+                        img_url, 
+                        headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
+                    )
+                    with urllib.request.urlopen(req) as response, open(output_path, 'wb') as out_file:
+                        out_file.write(response.read())
+                    logger.info(f"Successfully downloaded format-less image from {img_url} to {output_path}")
+                    return {'title': info.get('title') or info.get('description') or '', 'url': info.get('webpage_url') or url}
+            
             filesize = info.get('filesize') or info.get('filesize_approx') or 0
             if filesize > 50 * 1024 * 1024:
-                raise ValueError(f"Video is too large: {filesize / (1024*1024):.1f}MB (Max 50MB)")
+                raise ValueError("Video is too large: exceeds 50MB limit")
     except ValueError as val_err:
         raise val_err
     except Exception as check_err:
@@ -1574,6 +1597,7 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
             return
         
         # Step 1: Try yt-dlp first
+        size_exceeded = False
         video_metadata = None
         try:
             video_metadata = await asyncio.to_thread(sync_download_video, url, filename)
@@ -1586,10 +1610,13 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
                     await status_msg.delete()
                     return
                 else:
+                    size_exceeded = True
                     logger.warning(f"yt-dlp downloaded video exceeds 50MB ({file_size} bytes). Redirecting to link fallback.")
             else:
                 logger.warning("yt-dlp sync download did not produce a file.")
         except Exception as ytdl_err:
+            if "exceeds 50MB limit" in str(ytdl_err):
+                size_exceeded = True
             logger.error(f"yt-dlp failed: {ytdl_err}")
             await database.log_error(config.DB_FILE, "DOWNLOAD_YTDL_ERROR", f"yt-dlp failed for URL {url}: {ytdl_err}", traceback.format_exc())
 
@@ -1610,6 +1637,8 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
                         return
                     except Exception:
                         pass
+                else:
+                    size_exceeded = True
             
             if cobalt_stream_url:
                 await status_msg.edit_text(
@@ -1623,7 +1652,9 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
             await database.log_error(config.DB_FILE, "DOWNLOAD_COBALT_ERROR", f"Cobalt fallback process failed for URL {url}: {cobalt_err}", traceback.format_exc())
 
         # Step 3: Failure message
-        if "instagram.com" in url:
+        if size_exceeded:
+            await status_msg.edit_text("❌ حجم ویدیو بیشتر از ۵۰ مگابایته و تلگرام اجازه آپلودش رو نمیده! 🚶‍♂️")
+        elif "instagram.com" in url:
             await status_msg.edit_text("❌ اینستاگرام جلوشو گرفت! ادمین باید کوکی ست کنه.")
         elif "pinterest.com" in url or "pin.it" in url:
             await status_msg.edit_text("❌ نتونستم این پین رو دانلود کنم، پینترست گیر داده.")
