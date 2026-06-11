@@ -767,7 +767,7 @@ async def admin_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Admin utility: Broadcast
     if action == "broadcast":
         if not value:
-            await update.message.reply_text("❌ خطا: پیام برودکست خالی است.")
+            await update.message.reply_text("❌ خطا: متن پیام همگانی (broadcast) نمی‌تواند خالی باشد.")
             return
         chat_ids = await database.get_all_chat_ids(config.DB_FILE)
         success_count = 0
@@ -808,7 +808,7 @@ async def admin_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Admin utility: Remove Special
     if action == "remove_special":
         if not value:
-            await update.message.reply_text("❌ خطا: یوزرنیم یا نام کاربر ویژه را وارد نکردی.")
+            await update.message.reply_text("❌ خطا: لطفاً نام کاربری یا نام مخاطب مورد نظر را برای حذف وارد کنید.")
             return
         special_username = value.strip()
         if (special_username.startswith('"') and special_username.endswith('"')) or (special_username.startswith("'") and special_username.endswith("'")):
@@ -821,7 +821,7 @@ async def admin_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Admin utility: Add Special
     if action == "add_special":
         if not value:
-            await update.message.reply_text("❌ خطا: باید نام کاربری/نام و دستورالعمل اختصاصی را وارد کنی.\nمثال: `/admin add_special username بسیار مهربان و باادب باش`\nیا برای نام‌های با فاصله: `/admin add_special \"John Doe\" بسیار مهربان باش`")
+            await update.message.reply_text("❌ خطا: لطفاً فرمت صحیح را وارد کنید:\n`/admin add_special <username/name> <instruction>`\nمثال: `/admin add_special username بسیار مهربان و باادب باش`\nیا برای نام‌های با فاصله: `/admin add_special \"John Doe\" بسیار مهربان باش`")
             return
         
         # Check if username is wrapped in quotes
@@ -841,7 +841,7 @@ async def admin_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
         if not special_username or not special_instruction:
             if len(args) < 3:
-                await update.message.reply_text("❌ خطا: باید نام کاربری/نام و دستورالعمل اختصاصی را وارد کنی.\nمثال: `/admin add_special username بسیار مهربان و باادب باش`")
+                await update.message.reply_text("❌ خطا: لطفاً فرمت صحیح را وارد کنید:\n`/admin add_special <username/name> <instruction>`\nمثال: `/admin add_special username بسیار مهربان و باادب باش`")
                 return
             special_username = args[1].lstrip("@")
             special_instruction = " ".join(args[2:])
@@ -853,7 +853,7 @@ async def admin_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if not value:
-        await update.message.reply_text("❌ مقدار جدید رو برای ویرایش تنظیمات ارسال نکردی.")
+        await update.message.reply_text("❌ خطا: مقدار جدید برای تغییر پارامتر مشخص نشده است.")
         return
 
     # Setting parameters
@@ -863,7 +863,7 @@ async def admin_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     elif action == "set_limit":
         if not value.isdigit():
-            await update.message.reply_text("❌ خطا: محدودیت شمارش کانتکست گفتگو باید عدد صحیح مثبت باشه.")
+            await update.message.reply_text("❌ خطا: تعداد پیام‌های کانتکست (limit) باید یک عدد صحیح مثبت باشد.")
             return
         await database.save_config_key(config.DB_FILE, "CONTEXT_LIMIT", value)
         await update.message.reply_text(f"✅ پنجره کانتکست تغییر کرد به: `{value}` پیام", parse_mode="Markdown")
@@ -872,7 +872,7 @@ async def admin_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             float(value)
         except ValueError:
-            await update.message.reply_text("❌ خطا: بازه زمانی تایم‌اوت باید یک عدد معتبر باشد.")
+            await update.message.reply_text("❌ خطا: زمان تایم‌اوت (timeout) باید یک عدد معتبر (اعشاری یا صحیح) باشد.")
             return
         await database.save_config_key(config.DB_FILE, "TIMEOUT", value)
         await update.message.reply_text(f"✅ آستانه زمانی قطع اتصال تغییر کرد به: `{value}` ثانیه", parse_mode="Markdown")
@@ -882,7 +882,7 @@ async def admin_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             val = float(value)
             if not (0.0 <= val <= 1.0): raise ValueError
         except ValueError:
-            await update.message.reply_text("❌ خطا: شانس تیکه‌اندازی باید عددی بین 0.0 و 1.0 باشد.")
+            await update.message.reply_text("❌ خطا: شانس پاسخ تصادفی (chance) باید یک عدد اعشاری بین 0.0 و 1.0 باشد.")
             return
         await database.save_config_key(config.DB_FILE, "RANDOM_ROAST_CHANCE", value)
         await update.message.reply_text(f"✅ شانس تیکه‌اندازی تصادفی روی `{value}` تنظیم شد.", parse_mode="Markdown")
@@ -891,7 +891,7 @@ async def admin_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await database.save_config_key(config.DB_FILE, "SYSTEM_INSTRUCTION", value)
         await update.message.reply_text("✅ دستورالعمل پرسونای سیستم با موفقیت به‌روزرسانی شد.")
     else:
-        await update.message.reply_text("❌ دستور نامعتبر است. از راهنمای پنل استفاده کن.")
+        await update.message.reply_text("❌ خطا: دستور مدیریت نامعتبر است. لطفاً از راهنمای پنل مدیریت کمک بگیرید.")
 
 async def tldr_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Summarizes the drama and main topics of the chat history in Persian slang."""
