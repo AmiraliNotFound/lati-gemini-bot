@@ -31,6 +31,11 @@ def format_media_caption(caption_text: str, webpage_url: str, platform: str, med
             link_text = "link to the image"
         else:
             link_text = "link to the Instagram post"
+    elif "pinterest" in platform.lower():
+        if media_type == "photo":
+            link_text = "link to the Pinterest image"
+        else:
+            link_text = "link to the Pinterest video"
     else:
         if media_type == "photo":
             link_text = "link to the image"
@@ -345,7 +350,7 @@ async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "🔹 /transcribe : تبدیل ویس ریپلای شده به متن (کافیست روی ویس ریپلای کنید)\n"
             "🔹 /support <پیام> : ارتباط با پشتیبانی و ارسال پیام به ادمین (فقط در چت خصوصی)\n\n"
             "🎥 **دانلودر هوشمند:**\n"
-            "اگه لینک **اینستاگرام** یا **یوتوب** بفرستی، ویدیو رو مستقیم برات همینجا دانلود می‌کنم و می‌فرستم!"
+            "اگه لینک **اینستاگرام**، **یوتوب** یا **پینترست** بفرستی، مدیا (ویدیو یا عکس) رو مستقیم برات همینجا دانلود می‌کنم و می‌فرستم!"
         )
         
         is_admin = False
@@ -1369,8 +1374,102 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
         cookies_root_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "cookies.txt")
         cookies_path = cookies_data_path if os.path.exists(cookies_data_path) else (cookies_root_path if os.path.exists(cookies_root_path) else None)
 
+        async def try_send_media_file(path: str, title: str = "", webpage_url: str = "") -> bool:
+            if not os.path.exists(path):
+                return False
+                
+            is_img = False
+            img_format = None
+            try:
+                from PIL import Image
+                with Image.open(path) as img:
+                    is_img = True
+                    img_format = img.format  # e.g., 'JPEG', 'PNG', 'GIF'
+            except Exception:
+                pass
+                
+            if "youtube.com" in webpage_url or "youtu.be" in webpage_url:
+                platform = "youtube"
+            elif "pinterest.com" in webpage_url or "pin.it" in webpage_url:
+                platform = "pinterest"
+            elif "instagram.com" in webpage_url:
+                platform = "instagram"
+            else:
+                platform = "other"
+                
+            media_type = "photo" if is_img else "video"
+            caption = format_media_caption(title, webpage_url, platform, media_type)
+            
+            if is_img:
+                ext = f".{img_format.lower()}" if img_format else ".jpg"
+                temp_img_path = f"temp_media_{uuid.uuid4().hex}{ext}"
+                try:
+                    os.rename(path, temp_img_path)
+                    with open(temp_img_path, 'rb') as photo:
+                        if img_format == "GIF":
+                            await context.bot.send_animation(
+                                chat_id=chat_id,
+                                animation=photo,
+                                caption=caption,
+                                parse_mode="HTML",
+                                reply_to_message_id=update.message.message_id
+                            )
+                        else:
+                            await context.bot.send_photo(
+                                chat_id=chat_id,
+                                photo=photo,
+                                caption=caption,
+                                parse_mode="HTML",
+                                reply_to_message_id=update.message.message_id
+                            )
+                    return True
+                except Exception as send_err:
+                    logger.error(f"Failed to send photo: {send_err}")
+                    await database.log_error(config.DB_FILE, "TELEGRAM_SEND_ERROR", f"Failed to send photo: {send_err}", traceback.format_exc())
+                    raise send_err
+                finally:
+                    if os.path.exists(temp_img_path):
+                        try:
+                            os.remove(temp_img_path)
+                        except:
+                            pass
+            else:
+                metadata = await asyncio.to_thread(get_video_metadata, path)
+                duration = metadata.get("duration")
+                width = metadata.get("width")
+                height = metadata.get("height")
+                
+                has_thumb = await asyncio.to_thread(generate_video_thumbnail, path, thumbnail_filename)
+                
+                try:
+                    with open(path, 'rb') as video:
+                        thumb_file = None
+                        if has_thumb and os.path.exists(thumbnail_filename):
+                            thumb_file = open(thumbnail_filename, 'rb')
+                        
+                        await context.bot.send_video(
+                            chat_id=chat_id,
+                            video=video,
+                            duration=duration,
+                            width=width,
+                            height=height,
+                            thumbnail=thumb_file,
+                            supports_streaming=True,
+                            caption=caption,
+                            parse_mode="HTML",
+                            reply_to_message_id=update.message.message_id
+                        )
+                        if thumb_file:
+                            thumb_file.close()
+                    return True
+                except Exception as send_err:
+                    logger.error(f"Failed to send video: {send_err}")
+                    await database.log_error(config.DB_FILE, "TELEGRAM_SEND_ERROR", f"Failed to send video: {send_err}", traceback.format_exc())
+                    raise send_err
+
         # If it's an Instagram link, try downloading it as a post/carousel first
         if "instagram.com" in url:
+            items = []
             try:
                 items, metadata = await download_instagram_post(url, cookies_path)
                 if items:
@@ -1454,63 +1553,26 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
                                     f.close()
                                 except:
                                     pass
-                    
-                    # Cleanup downloaded files
-                    for item in items:
-                        if os.path.exists(item['path']):
-                            os.remove(item['path'])
                     await status_msg.delete()
                     return
             except Exception as ig_err:
                 logger.warning(f"Instagram dedicated downloader failed: {ig_err}")
-                # For Instagram links, NEVER fall through to the generic video downloader —
-                # it uses yt-dlp which cannot handle image posts and would produce the same error.
-                # Instead, inform the user directly.
                 await status_msg.edit_text(
                     "❌ نتونستم این پست اینستاگرامو بگیرم.\n\n"
                     "📸 اگه پست عکسه و خصوصی نیست، ممکنه مشکل از کوکی‌ها باشه — "
                     "از بخش *Conf* پنل ادمین کوکی‌های جدید آپلود کن.",
                     parse_mode="Markdown"
                 )
-                return
+            finally:
+                # Cleanup downloaded files
+                for item in items:
+                    if os.path.exists(item['path']):
+                        try:
+                            os.remove(item['path'])
+                        except Exception as cleanup_err:
+                            logger.error(f"Cleanup error for file {item['path']}: {cleanup_err}")
+            return
         
-        async def try_send_video_file(path: str, caption: str = None) -> bool:
-            if not os.path.exists(path):
-                return False
-                
-            metadata = await asyncio.to_thread(get_video_metadata, path)
-            duration = metadata.get("duration")
-            width = metadata.get("width")
-            height = metadata.get("height")
-            
-            has_thumb = await asyncio.to_thread(generate_video_thumbnail, path, thumbnail_filename)
-            
-            try:
-                with open(path, 'rb') as video:
-                    thumb_file = None
-                    if has_thumb and os.path.exists(thumbnail_filename):
-                        thumb_file = open(thumbnail_filename, 'rb')
-                    
-                    await context.bot.send_video(
-                        chat_id=chat_id,
-                        video=video,
-                        duration=duration,
-                        width=width,
-                        height=height,
-                        thumbnail=thumb_file,
-                        supports_streaming=True,
-                        caption=caption,
-                        parse_mode="HTML",
-                        reply_to_message_id=update.message.message_id
-                    )
-                    if thumb_file:
-                        thumb_file.close()
-                return True
-            except Exception as send_err:
-                logger.error(f"Failed to send video file: {send_err}")
-                await database.log_error(config.DB_FILE, "TELEGRAM_SEND_ERROR", f"Failed to send video file: {send_err}", traceback.format_exc())
-                raise send_err
-
         # Step 1: Try yt-dlp first
         video_metadata = None
         try:
@@ -1520,9 +1582,7 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
                 if file_size <= 50 * 1024 * 1024:
                     title = video_metadata.get('title', '') if video_metadata else ''
                     webpage_url = video_metadata.get('url', url) if video_metadata else url
-                    platform = "youtube" if "youtube.com" in webpage_url or "youtu.be" in webpage_url else "other"
-                    yt_caption = format_media_caption(title, webpage_url, platform, "video")
-                    await try_send_video_file(filename, caption=yt_caption)
+                    await try_send_media_file(filename, title=title, webpage_url=webpage_url)
                     await status_msg.delete()
                     return
                 else:
@@ -1545,8 +1605,7 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
                 file_size = os.path.getsize(filename)
                 if file_size <= 50 * 1024 * 1024:
                     try:
-                        cobalt_caption = format_media_caption("", url, "other", "video")
-                        await try_send_video_file(filename, caption=cobalt_caption)
+                        await try_send_media_file(filename, title="", webpage_url=url)
                         await status_msg.delete()
                         return
                     except Exception:
@@ -1566,8 +1625,10 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
         # Step 3: Failure message
         if "instagram.com" in url:
             await status_msg.edit_text("❌ اینستاگرام جلوشو گرفت! ادمین باید کوکی ست کنه.")
+        elif "pinterest.com" in url or "pin.it" in url:
+            await status_msg.edit_text("❌ نتونستم این پین رو دانلود کنم، پینترست گیر داده.")
         else:
-            await status_msg.edit_text("❌ نتونستم دانلودش کنم، یوتوب/اینستا گیر داده.")
+            await status_msg.edit_text("❌ نتونستم دانلودش کنم، یوتوب/اینستا/پینترست گیر داده.")
             
     except Exception as outer_err:
         await mark_chat_if_send_error(chat_id, outer_err)
@@ -1627,8 +1688,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sender_name = update.message.from_user.first_name or "User"
     bot_username = context.bot.username
 
-    # Detect Instagram/YouTube links and auto-download in background
-    url_match = re.search(r"(https?://(?:www\.)?(?:instagram\.com|youtube\.com|youtu\.be|x\.com|twitter\.com)[^\s]+)", user_text)
+    # Detect Instagram/YouTube/Pinterest links and auto-download in background
+    url_match = re.search(r"(https?://(?:www\.)?(?:instagram\.com|youtube\.com|youtu\.be|x\.com|twitter\.com|pinterest\.com|pin\.it)[^\s]+)", user_text)
     if url_match:
         asyncio.create_task(download_and_send_video(update, context, url_match.group(1)))
         return
