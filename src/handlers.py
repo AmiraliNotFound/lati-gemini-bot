@@ -1013,6 +1013,13 @@ def sync_download_video(url: str, output_path: str) -> dict:
     if not yt_dlp:
         raise ImportError("yt_dlp is not installed")
         
+    def progress_hook(d):
+        if d.get('status') == 'downloading':
+            total = d.get('total_bytes') or d.get('total_bytes_estimate') or 0
+            downloaded = d.get('downloaded_bytes') or 0
+            if total > 50 * 1024 * 1024 or downloaded > 50 * 1024 * 1024:
+                raise ValueError("Video is too large: exceeds 50MB limit")
+
     # Strip tracking parameters from Instagram/X URLs to bypass basic blocks
     if "instagram.com" in url or "x.com" in url or "twitter.com" in url:
         url = url.split("?")[0]
@@ -1025,6 +1032,7 @@ def sync_download_video(url: str, output_path: str) -> dict:
         'max_filesize': 50000000,
         'socket_timeout': 15,
         'remote_components': ['ejs:github'],
+        'progress_hooks': [progress_hook],
         'http_headers': {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         }
@@ -1565,7 +1573,7 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
         await mark_chat_if_send_error(chat_id, outer_err)
         logger.error(f"Error in download_and_send_video: {outer_err}")
     finally:
-        for fpath in [filename, thumbnail_filename]:
+        for fpath in [filename, thumbnail_filename, f"{filename}.part", f"{filename}.ytdl"]:
             if os.path.exists(fpath):
                 try:
                     os.remove(fpath)
