@@ -465,9 +465,11 @@ async def send_profile_link_handler(request):
         return web.json_response({"status": "error", "reason": "Bot application not running"}, status=500)
         
     try:
-        # Construct markdown link
-        message_text = f"🔗 *User Profile Link:*\n[{target_name}](tg://user?id={target_id})"
-        await app.bot.send_message(chat_id=admin_id, text=message_text, parse_mode="Markdown")
+        # Construct HTML link
+        import html
+        escaped_name = html.escape(target_name)
+        message_text = f"🔗 <b>User Profile Link:</b>\n<a href=\"tg://user?id={target_id}\">{escaped_name}</a>"
+        await app.bot.send_message(chat_id=admin_id, text=message_text, parse_mode="HTML")
         return web.json_response({"status": "success"})
     except Exception as e:
         logger.error(f"Failed to send profile link to admin {admin_id}: {e}")
