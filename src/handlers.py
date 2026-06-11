@@ -2218,6 +2218,21 @@ async def handle_guest_message(update: Update, context: ContextTypes.DEFAULT_TYP
     url = url_match.group(1)
     logger.info(f"Guest message link download requested for URL: {url} (query_id: {guest_query_id})")
     
+    import aiohttp
+    import json
+    endpoint = f"https://api.telegram.org/bot{config.TELEGRAM_TOKEN}/answerGuestQuery"
+    
+    result = None
+    direct_success = False
+    
+    platform = "other"
+    if "instagram.com" in url:
+        platform = "instagram"
+    elif "pinterest.com" in url or "pin.it" in url:
+        platform = "pinterest"
+    elif "youtube.com" in url or "youtu.be" in url:
+        platform = "youtube"
+
     # Step 1: Try zero-bandwidth mode (direct URL redirection) first for non-YouTube links
     is_youtube = ("youtube.com" in url or "youtu.be" in url)
     if not is_youtube:
