@@ -3,7 +3,7 @@ import logging
 import asyncio
 from datetime import datetime
 import traceback
-from telegram.ext import Application, MessageHandler, CommandHandler, filters
+from telegram.ext import Application, MessageHandler, CommandHandler, InlineQueryHandler, filters
 from google.genai import types
 
 from src import config
@@ -183,6 +183,7 @@ def main():
     # Message Pipeline Routing: support text, photo, and voice messages
     message_filter = filters.TEXT | filters.PHOTO | filters.VOICE
     application.add_handler(MessageHandler(message_filter & ~filters.COMMAND, handlers.handle_message))
+    application.add_handler(InlineQueryHandler(handlers.handle_inline_query))
     
     logger.info("Telegram event routing configured. Starting polling...")
     application.run_polling()

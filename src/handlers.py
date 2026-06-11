@@ -54,7 +54,7 @@ try:
 except ImportError:
     edge_tts = None
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo, InputMediaPhoto, InputMediaVideo
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo, InputMediaPhoto, InputMediaVideo, InlineQueryResultVideo, InlineQueryResultPhoto, InlineQueryResultArticle, InputTextMessageContent
 from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 from google import genai
@@ -2004,3 +2004,205 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text(f"سیستم ریپ زد {sender_name}، یه بار دیگه بگو 🚶‍♂️")
             except Exception as send_err:
                 await mark_chat_if_send_error(chat_id, send_err)
+
+async def get_direct_media_link(url: str) -> dict:
+    # 1. Try Cobalt first (extremely fast)
+    import aiohttp
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "Origin": "https://cobalt.tools",
+        "Referer": "https://cobalt.tools/",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+    payload = {"url": url}
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post("https://api.cobalt.tools/api/json", json=payload, headers=headers, timeout=5) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    status = data.get("status")
+                    if status in ["stream", "redirect"] and data.get("url"):
+                        media_url = data.get("url")
+                        
+                        # Determine type
+                        media_type = 'video'
+                        if any(ext in media_url.lower() for ext in ['.jpg', '.jpeg', '.png', '.webp']):
+                            media_type = 'photo'
+                        elif "pinterest.com" in url or "pin.it" in url:
+                            if not any(ext in media_url.lower() for ext in ['.mp4', '.mkv', '.webm']):
+                                media_type = 'photo'
+                                
+                        return {
+                            'type': media_type,
+                            'url': media_url,
+                            'thumbnail': media_url if media_type == 'photo' else None,
+                            'title': ''
+                        }
+                    elif status == "picker" and data.get("picker"):
+                        first_item = data["picker"][0]
+                        media_url = first_item.get("url")
+                        if media_url:
+                            media_type = 'video'
+                            if first_item.get("type") == "photo" or any(ext in media_url.lower() for ext in ['.jpg', '.jpeg', '.png', '.webp']):
+                                media_type = 'photo'
+                            return {
+                                'type': media_type,
+                                'url': media_url,
+                                'thumbnail': media_url if media_type == 'photo' else None,
+                                'title': ''
+                            }
+    except Exception as e:
+        logger.warning(f"Inline cobalt extraction failed: {e}")
+
+    # 2. Try yt-dlp metadata extraction (download=False)
+    if not yt_dlp:
+        return {}
+        
+    def sync_extract():
+        ydl_opts = {
+            'noplaylist': True,
+            'quiet': True,
+            'ignore_no_formats_error': True,
+            'socket_timeout': 10,
+            'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            }
+        }
+        
+        nonlocal url
+        if "instagram.com" in url or "x.com" in url or "twitter.com" in url:
+            url = url.split("?")[0]
+            
+        cookies_data_path = os.path.join(os.path.dirname(config.DB_FILE), "cookies.txt")
+        cookies_root_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "cookies.txt")
+        if os.path.exists(cookies_data_path):
+            ydl_opts['cookiefile'] = cookies_data_path
+        elif os.path.exists(cookies_root_path):
+            ydl_opts['cookiefile'] = cookies_root_path
+            
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            
+            formats = info.get('formats') or []
+            title = clean_extracted_title(info)
+            
+            img_url = info.get('thumbnail')
+            if not img_url and info.get('thumbnails'):
+                img_url = info['thumbnails'][-1].get('url')
+                
+            if not formats:
+                if img_url:
+                    return {
+                        'type': 'photo',
+                        'url': img_url,
+                        'thumbnail': img_url,
+                        'title': title
+                    }
+                return {}
+                
+            video_url = None
+            mp4_formats = [f for f in formats if f.get('ext') == 'mp4' and f.get('url') and 'manifest' not in f.get('url', '')]
+            if mp4_formats:
+                mp4_formats.sort(key=lambda x: x.get('height') or 0, reverse=True)
+                video_url = mp4_formats[0].get('url')
+            
+            if not video_url:
+                valid_formats = [f for f in formats if f.get('url') and 'manifest' not in f.get('url', '')]
+                if valid_formats:
+                    valid_formats.sort(key=lambda x: x.get('height') or 0, reverse=True)
+                    video_url = valid_formats[0].get('url')
+                    
+            if video_url:
+                return {
+                    'type': 'video',
+                    'url': video_url,
+                    'thumbnail': img_url or "https://raw.githubusercontent.com/telegram/widgets/master/logos/telegram.png",
+                    'title': title
+                }
+            return {}
+
+    try:
+        return await asyncio.to_thread(sync_extract)
+    except Exception as e:
+        logger.error(f"Inline yt-dlp extraction failed: {e}")
+        
+    return {}
+
+async def handle_inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.inline_query:
+        return
+    query = update.inline_query.query.strip()
+    if not query:
+        return
+        
+    # Check if the query contains a supported link
+    url_match = re.search(r"(https?://(?:www\.)?(?:instagram\.com|youtube\.com|youtu\.be|x\.com|twitter\.com|pinterest\.com|pin\.it)[^\s]+)", query)
+    if not url_match:
+        return
+        
+    url = url_match.group(1)
+    logger.info(f"Inline query received for URL: {url}")
+    
+    media_info = await get_direct_media_link(url)
+    
+    results = []
+    if media_info:
+        media_type = media_info.get('type')
+        media_url = media_info.get('url')
+        thumb_url = media_info.get('thumbnail') or media_url
+        title = media_info.get('title') or "دانلود مدیا"
+        
+        platform = "other"
+        if "instagram.com" in url:
+            platform = "instagram"
+        elif "pinterest.com" in url or "pin.it" in url:
+            platform = "pinterest"
+        elif "youtube.com" in url or "youtu.be" in url:
+            platform = "youtube"
+            
+        caption = format_media_caption(title, url, platform, media_type)
+        
+        if media_type == 'photo':
+            results.append(
+                InlineQueryResultPhoto(
+                    id=str(uuid.uuid4()),
+                    photo_url=media_url,
+                    thumbnail_url=thumb_url,
+                    caption=caption,
+                    parse_mode="HTML",
+                    title=title
+                )
+            )
+        elif media_type == 'video':
+            results.append(
+                InlineQueryResultVideo(
+                    id=str(uuid.uuid4()),
+                    video_url=media_url,
+                    mime_type="video/mp4",
+                    thumbnail_url=thumb_url,
+                    title=title,
+                    caption=caption,
+                    parse_mode="HTML"
+                )
+            )
+            
+    # Always provide a fallback link sending article
+    fallback_text = f"📥 <b>لینک مستقیم دانلود مدیا:</b>\n\n🔗 <a href='{url}'>لینک مستقیم پست</a>"
+    results.append(
+        InlineQueryResultArticle(
+            id=str(uuid.uuid4()),
+            title="🔗 ارسال لینک مستقیم دانلود",
+            description="ارسال لینک پست برای دانلود مستقیم",
+            input_message_content=InputTextMessageContent(
+                message_text=fallback_text,
+                parse_mode="HTML",
+                disable_web_page_preview=False
+            )
+        )
+    )
+    
+    try:
+        await update.inline_query.answer(results, cache_time=300)
+    except Exception as e:
+        logger.error(f"Failed to answer inline query: {e}")
