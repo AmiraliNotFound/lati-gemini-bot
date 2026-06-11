@@ -126,7 +126,8 @@ async def init_db(db_path: str):
             ("custom_cooldown", "INTEGER DEFAULT NULL"),
             ("custom_model", "TEXT DEFAULT NULL"),
             ("custom_tts_engine", "TEXT DEFAULT NULL"),
-            ("custom_system_instruction", "TEXT DEFAULT NULL")
+            ("custom_system_instruction", "TEXT DEFAULT NULL"),
+            ("username", "TEXT DEFAULT NULL")
         ]
         for col_name, col_type in migration_columns:
             try:
@@ -298,7 +299,7 @@ async def is_blocked(db_path: str, target_id: int) -> bool:
         async with db.execute("SELECT 1 FROM blocked WHERE target_id = ?", (target_id,)) as cursor:
             return await cursor.fetchone() is not None
 
-async def save_chat_metadata(db_path: str, chat_id: int, chat_name: str, chat_type: str = "unknown"):
+async def save_chat_metadata(db_path: str, chat_id: int, chat_name: str, chat_type: str = "unknown", username: str = None):
     async with aiosqlite.connect(db_path) as db:
         # Check if chat metadata row exists
         async with db.execute("SELECT msg_count FROM chat_metadata WHERE chat_id = ?", (chat_id,)) as cursor:
@@ -306,14 +307,14 @@ async def save_chat_metadata(db_path: str, chat_id: int, chat_name: str, chat_ty
             
         if row is None:
             await db.execute(
-                "INSERT INTO chat_metadata (chat_id, chat_name, chat_type, msg_count, last_active) VALUES (?, ?, ?, 1, CURRENT_TIMESTAMP)",
-                (chat_id, chat_name, chat_type)
+                "INSERT INTO chat_metadata (chat_id, chat_name, chat_type, msg_count, last_active, username) VALUES (?, ?, ?, 1, CURRENT_TIMESTAMP, ?)",
+                (chat_id, chat_name, chat_type, username)
             )
         else:
             new_msg_count = row[0] + 1
             await db.execute(
-                "UPDATE chat_metadata SET chat_name = ?, chat_type = ?, msg_count = ?, last_active = CURRENT_TIMESTAMP WHERE chat_id = ?",
-                (chat_name, chat_type, new_msg_count, chat_id)
+                "UPDATE chat_metadata SET chat_name = ?, chat_type = ?, msg_count = ?, last_active = CURRENT_TIMESTAMP, username = ? WHERE chat_id = ?",
+                (chat_name, chat_type, new_msg_count, username, chat_id)
             )
         await db.commit()
 
@@ -446,7 +447,7 @@ async def get_detailed_chats(db_path: str) -> list:
         return []
     async with aiosqlite.connect(db_path) as db:
         query = '''
-            SELECT chat_id, chat_name, chat_type, msg_count, last_active, is_muted, custom_roast_chance, custom_cooldown, custom_tts_engine, custom_model, custom_system_instruction
+            SELECT chat_id, chat_name, chat_type, msg_count, last_active, is_muted, custom_roast_chance, custom_cooldown, custom_tts_engine, custom_model, custom_system_instruction, username
             FROM chat_metadata
             ORDER BY last_active DESC
         '''
@@ -463,7 +464,8 @@ async def get_detailed_chats(db_path: str) -> list:
                 "custom_cooldown": r[7],
                 "custom_tts_engine": r[8],
                 "custom_model": r[9],
-                "custom_system_instruction": r[10]
+                "custom_system_instruction": r[10],
+                "username": r[11]
             } for r in rows]
 
 async def get_top_chat_users(db_path: str, chat_id: int, limit: int = 5) -> list:

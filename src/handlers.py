@@ -1518,7 +1518,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     chat_name = update.message.chat.title or update.message.chat.first_name or str(chat_id)
     chat_type = update.message.chat.type
-    await database.save_chat_metadata(config.DB_FILE, chat_id, chat_name, chat_type=chat_type)
+    chat_username = update.message.chat.username
+    await database.save_chat_metadata(config.DB_FILE, chat_id, chat_name, chat_type=chat_type, username=chat_username)
 
     # Extract user inputs: caption for photos, text for text messages
     user_text = update.message.text or update.message.caption or ""
