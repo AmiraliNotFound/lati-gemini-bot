@@ -54,9 +54,10 @@ def check_auth(request):
     """
     Validates the Telegram WebApp initData HMAC signature and verifies
     that the requesting user is in the ALLOWED_ADMINS list.
+    Returns the admin's numeric Telegram user ID on success.
     """
     if os.getenv("DEV_BYPASS") == "true":
-        return
+        return 12345678
 
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
@@ -96,6 +97,7 @@ def check_auth(request):
                 text=json.dumps({"status": "error", "reason": f"Access denied: User @{username} is not an authorized administrator"}),
                 content_type="application/json"
             )
+        return user_data.get("id")
     except Exception as e:
         logger.error(f"Failed to check admin permissions: {e}")
         try:
@@ -452,6 +454,27 @@ async def get_model_limits(request):
         "usage": usage_stats
     })
 
+async def send_profile_link_handler(request):
+    admin_id = check_auth(request)
+    data = await request.json()
+    target_id = int(data.get("target_id"))
+    target_name = data.get("target_name", "User")
+    
+    app = request.app.get("bot_app")
+    if not app:
+        return web.json_response({"status": "error", "reason": "Bot application not running"}, status=500)
+        
+    try:
+        # Construct markdown link
+        message_text = f"🔗 *لینک پروفایل کاربر:*\n[{target_name}](tg://user?id={target_id})"
+        await app.bot.send_message(chat_id=admin_id, text=message_text, parse_mode="Markdown")
+        return web.json_response({"status": "success"})
+    except Exception as e:
+        logger.error(f"Failed to send profile link to admin {admin_id}: {e}")
+        import traceback
+        await database.log_error(config.DB_FILE, "TELEGRAM_SEND_ERROR", f"Failed to send profile link to admin {admin_id}: {e}", traceback.format_exc())
+        return web.json_response({"status": "error", "reason": str(e)}, status=500)
+
 async def index_handler(request):
     frontend_dir = os.path.join(os.path.dirname(__file__), "..", "webapp", "dist")
     index_file = os.path.join(frontend_dir, 'index.html')
@@ -495,6 +518,7 @@ async def setup_server(bot_app):
     cors.add(app.router.add_post('/api/chat/alert', alert_chat_handler))
     cors.add(app.router.add_get('/api/chat/top_users', get_top_users_handler))
     cors.add(app.router.add_get('/api/model_limits', get_model_limits))
+    cors.add(app.router.add_post('/api/chat/send_profile_link', send_profile_link_handler))
 
     # Serve static frontend files and SPA root
     app.router.add_get('/', index_handler)

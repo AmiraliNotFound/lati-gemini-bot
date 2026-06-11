@@ -358,6 +358,20 @@ function App() {
     }
   };
 
+  const sendProfileLink = async (chat) => {
+    showToast("Sending profile link to your DM...");
+    try {
+      await axios.post(`${API_BASE}/chat/send_profile_link`, {
+        target_id: chat.chat_id,
+        target_name: chat.name
+      });
+      showToast("Link sent to your PV! Check your chat with the bot.");
+    } catch (e) {
+      const reason = e.response?.data?.reason || "Failed to send profile link.";
+      showToast(`Error: ${reason}`);
+    }
+  };
+
   const addPreset = () => {
     if (!newPresetName.trim() || !newPresetPrompt.trim()) return showToast("Fill preset name and prompt");
     let currentPresets = [];
@@ -689,27 +703,49 @@ function App() {
                           <div className="list-item" key={chat.chat_id} style={{padding: '16px 0'}}>
                             <div className="item-info" style={{flex: 1, marginRight: 12}}>
                               <div className="item-name" style={{display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6}}>
-                                {chat.type === 'private' ? (() => {
-                                  const profileLink = chat.username 
-                                    ? `https://t.me/${chat.username}` 
-                                    : `tg://user?id=${chat.chat_id}`;
-                                  return (
-                                    <a 
-                                      href={profileLink} 
-                                      onClick={(e) => {
-                                        if (window.Telegram?.WebApp?.openTelegramLink) {
-                                          e.preventDefault();
-                                          window.Telegram.WebApp.openTelegramLink(profileLink);
-                                        }
+                                {chat.type === 'private' ? (
+                                  <div style={{display: 'inline-flex', alignItems: 'center', gap: 8}}>
+                                    {(() => {
+                                      const profileLink = chat.username 
+                                        ? `https://t.me/${chat.username}` 
+                                        : `tg://user?id=${chat.chat_id}`;
+                                      return (
+                                        <a 
+                                          href={profileLink} 
+                                          onClick={(e) => {
+                                            if (window.Telegram?.WebApp?.openTelegramLink) {
+                                              e.preventDefault();
+                                              window.Telegram.WebApp.openTelegramLink(profileLink);
+                                            }
+                                          }}
+                                          style={{color: 'var(--tg-theme-link-color)', textDecoration: 'none', fontWeight: 'bold'}}
+                                          onMouseEnter={(e) => e.target.style.textDecoration = 'underline'}
+                                          onMouseLeave={(e) => e.target.style.textDecoration = 'none'}
+                                        >
+                                          {chat.name}
+                                        </a>
+                                      );
+                                    })()}
+                                    <button 
+                                      className="btn" 
+                                      style={{
+                                        padding: '2px 6px', 
+                                        fontSize: 10, 
+                                        height: 'auto',
+                                        background: 'rgba(255,255,255,0.06)',
+                                        border: '1px solid var(--border-color)',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: 4
                                       }}
-                                      style={{color: 'var(--tg-theme-link-color)', textDecoration: 'none', fontWeight: 'bold'}}
-                                      onMouseEnter={(e) => e.target.style.textDecoration = 'underline'}
-                                      onMouseLeave={(e) => e.target.style.textDecoration = 'none'}
+                                      onClick={() => sendProfileLink(chat)}
+                                      title="Send direct profile link to your PV"
                                     >
-                                      {chat.name}
-                                    </a>
-                                  );
-                                })() : chat.name}
+                                      <Send size={10} />
+                                      Send Link
+                                    </button>
+                                  </div>
+                                ) : chat.name}
                                 <span className={`badge badge-${chat.type}`}>
                                   {chat.type === 'private' ? 'DM' : chat.type}
                                 </span>
