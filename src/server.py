@@ -465,11 +465,20 @@ async def send_profile_link_handler(request):
         return web.json_response({"status": "error", "reason": "Bot application not running"}, status=500)
         
     try:
-        # Construct HTML link
-        import html
-        escaped_name = html.escape(target_name)
-        message_text = f"🔗 <b>User Profile Link:</b>\n<a href=\"tg://user?id={target_id}\">{escaped_name}</a>"
-        await app.bot.send_message(chat_id=admin_id, text=message_text, parse_mode="HTML")
+        # Construct message and inline keyboard buttons (which are always clickable, unlike text deep links)
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        keyboard = [
+            [InlineKeyboardButton(text=f"👤 Open {target_name}'s Profile", url=f"tg://user?id={target_id}")],
+            [InlineKeyboardButton(text="💬 Open Chat Window", url=f"tg://openmessage?user_id={target_id}")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        message_text = f"🔗 *User Profile Link Requested*\nName: {target_name}\nID: `{target_id}`"
+        await app.bot.send_message(
+            chat_id=admin_id, 
+            text=message_text, 
+            parse_mode="Markdown", 
+            reply_markup=reply_markup
+        )
         return web.json_response({"status": "success"})
     except Exception as e:
         logger.error(f"Failed to send profile link to admin {admin_id}: {e}")
