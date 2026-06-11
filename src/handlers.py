@@ -992,30 +992,44 @@ async def tldr_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cobalt_fallback_download(url: str, output_path: str) -> tuple[bool, str]:
     import aiohttp
+    cobalt_instances = [
+        "https://dog.kittycat.boo",
+        "https://cobaltapi.kittycat.boo",
+        "https://fox.kittycat.boo",
+        "https://rue-cobalt.xenon.zone"
+    ]
     headers = {
         "Accept": "application/json",
         "Content-Type": "application/json",
-        "Origin": "https://cobalt.tools",
-        "Referer": "https://cobalt.tools/",
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
     payload = {"url": url}
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post("https://api.cobalt.tools/api/json", json=payload, headers=headers, timeout=15) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    if data.get("status") in ["stream", "redirect"] and data.get("url"):
-                        video_url = data.get("url")
-                        async with session.get(video_url, timeout=60) as v_resp:
-                            if v_resp.status == 200:
-                                with open(output_path, "wb") as f:
-                                    f.write(await v_resp.read())
-                                return True, video_url
-                        return False, video_url
-    except Exception as e:
-        logger.error(f"Cobalt fallback failed: {e}")
-        await database.log_error(config.DB_FILE, "DOWNLOAD_COBALT_ERROR", f"Cobalt fallback failed: {e}", traceback.format_exc())
+    
+    for instance in cobalt_instances:
+        try:
+            origin = instance.split("/api")[0]
+            inst_headers = {
+                **headers,
+                "Origin": origin,
+                "Referer": origin + "/"
+            }
+            logger.info(f"Attempting DM download fallback via Cobalt mirror: {instance}")
+            async with aiohttp.ClientSession() as session:
+                async with session.post(instance, json=payload, headers=inst_headers, timeout=12) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        status = data.get("status")
+                        if status in ["stream", "redirect", "tunnel"] and data.get("url"):
+                            video_url = data.get("url")
+                            async with session.get(video_url, timeout=60) as v_resp:
+                                if v_resp.status == 200:
+                                    with open(output_path, "wb") as f:
+                                        f.write(await v_resp.read())
+                                    return True, video_url
+                            logger.warning(f"Failed to fetch video stream from {video_url} on instance {instance}")
+        except Exception as e:
+            logger.warning(f"Cobalt fallback mirror {instance} failed: {e}")
+            
     return False, None
 
 def clean_extracted_title(info: dict) -> str:
@@ -2015,10 +2029,10 @@ async def get_direct_media_link(url: str) -> dict:
     
     # We use a pool of public Cobalt mirrors to bypass rate limits and geoblocks
     cobalt_instances = [
-        "https://api.cobalt.tools/api/json",
-        "https://api.cobalt.best/api/json",
-        "https://api.orion-belt.net/api/json",
-        "https://cobalt.sh/api/json"
+        "https://dog.kittycat.boo",
+        "https://cobaltapi.kittycat.boo",
+        "https://fox.kittycat.boo",
+        "https://rue-cobalt.xenon.zone"
     ]
     
     headers = {
@@ -2042,7 +2056,7 @@ async def get_direct_media_link(url: str) -> dict:
                     if resp.status == 200:
                         data = await resp.json()
                         status = data.get("status")
-                        if status in ["stream", "redirect"] and data.get("url"):
+                        if status in ["stream", "redirect", "tunnel"] and data.get("url"):
                             media_url = data.get("url")
                             
                             # Determine type
