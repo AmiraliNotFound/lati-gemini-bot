@@ -112,7 +112,8 @@ async def init_db(db_path: str):
                 last_active DATETIME DEFAULT CURRENT_TIMESTAMP,
                 is_muted INTEGER DEFAULT 0,
                 custom_roast_chance REAL DEFAULT NULL,
-                custom_cooldown INTEGER DEFAULT NULL
+                custom_cooldown INTEGER DEFAULT NULL,
+                send_failed INTEGER DEFAULT 0
             )
         ''')
         
@@ -127,7 +128,8 @@ async def init_db(db_path: str):
             ("custom_model", "TEXT DEFAULT NULL"),
             ("custom_tts_engine", "TEXT DEFAULT NULL"),
             ("custom_system_instruction", "TEXT DEFAULT NULL"),
-            ("username", "TEXT DEFAULT NULL")
+            ("username", "TEXT DEFAULT NULL"),
+            ("send_failed", "INTEGER DEFAULT 0")
         ]
         for col_name, col_type in migration_columns:
             try:
@@ -356,6 +358,31 @@ async def is_chat_muted(db_path: str, chat_id: int) -> bool:
         return False
     async with aiosqlite.connect(db_path) as db:
         async with db.execute("SELECT is_muted FROM chat_metadata WHERE chat_id = ?", (chat_id,)) as cursor:
+            row = await cursor.fetchone()
+            return row is not None and row[0] == 1
+
+async def set_chat_send_failed(db_path: str, chat_id: int, failed: bool):
+    """Marks or unmarks a chat as having a failed send operation."""
+    val = 1 if failed else 0
+    async with aiosqlite.connect(db_path) as db:
+        async with db.execute("SELECT 1 FROM chat_metadata WHERE chat_id = ?", (chat_id,)) as cursor:
+            exists = await cursor.fetchone() is not None
+            
+        if not exists:
+            await db.execute(
+                "INSERT INTO chat_metadata (chat_id, chat_name, chat_type, send_failed) VALUES (?, ?, ?, ?)",
+                (chat_id, f"Chat {chat_id}", "unknown", val)
+            )
+        else:
+            await db.execute("UPDATE chat_metadata SET send_failed = ? WHERE chat_id = ?", (val, chat_id))
+        await db.commit()
+
+async def is_chat_send_failed(db_path: str, chat_id: int) -> bool:
+    """Checks if the last send attempt to a chat failed."""
+    if not os.path.exists(db_path):
+        return False
+    async with aiosqlite.connect(db_path) as db:
+        async with db.execute("SELECT send_failed FROM chat_metadata WHERE chat_id = ?", (chat_id,)) as cursor:
             row = await cursor.fetchone()
             return row is not None and row[0] == 1
 

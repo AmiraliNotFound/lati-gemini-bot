@@ -50,6 +50,7 @@ except ImportError:
     edge_tts = None
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo, InputMediaPhoto, InputMediaVideo
+from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 from google import genai
 from google.genai import types
@@ -254,6 +255,70 @@ def get_ai_client():
         _ai_client = genai.Client(api_key=config.GEMINI_API_KEY).aio
     return _ai_client
 
+async def check_and_reset_chat_mute_state(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """
+    Checks if the chat was previously marked as failed for sending messages.
+    If so, checks Telegram permissions to see if the bot can now send messages.
+    If the bot is still muted/forbidden, returns False.
+    If permissions are now okay, clears the send_failed flag and returns True.
+    """
+    if not update.message or not update.message.chat:
+        return True
+
+    chat_id = update.message.chat.id
+    if update.message.chat.type not in ("group", "supergroup"):
+        return True
+
+    # Check if the chat was previously marked as send_failed
+    try:
+        is_failed = await database.is_chat_send_failed(config.DB_FILE, chat_id)
+    except Exception as db_err:
+        logger.error(f"Failed to check is_chat_send_failed: {db_err}")
+        is_failed = False
+
+    if not is_failed:
+        return True
+
+    logger.info(f"Chat {chat_id} is marked as send_failed. Checking Telegram permissions before proceeding...")
+    
+    can_send = False
+    try:
+        member = await context.bot.get_chat_member(chat_id=chat_id, user_id=context.bot.id)
+        if member.status not in ('left', 'kicked'):
+            can_send = True
+            if member.status == 'restricted':
+                if not getattr(member, 'can_send_messages', True):
+                    can_send = False
+                    
+            if can_send:
+                if member.status not in ('administrator', 'creator'):
+                    chat = await context.bot.get_chat(chat_id)
+                    if chat.permissions and not getattr(chat.permissions, 'can_send_messages', True):
+                        can_send = False
+    except Exception as e:
+        logger.warning(f"Failed to check chat member permissions in {chat_id}: {e}")
+        can_send = False
+
+    if can_send:
+        logger.info(f"Bot has permission to send messages in chat {chat_id}. Resetting send_failed flag.")
+        try:
+            await database.set_chat_send_failed(config.DB_FILE, chat_id, False)
+        except Exception as db_err:
+            logger.error(f"Failed to clear send_failed in database: {db_err}")
+        return True
+    else:
+        logger.warning(f"Bot is still muted/restricted in chat {chat_id}. Skipping processing.")
+        return False
+
+async def mark_chat_if_send_error(chat_id: int, e: Exception):
+    """Marks the chat as send_failed in the database if the exception is a TelegramError."""
+    if isinstance(e, TelegramError):
+        logger.warning(f"Telegram error detected for chat {chat_id}: {e}. Setting send_failed flag.")
+        try:
+            await database.set_chat_send_failed(config.DB_FILE, chat_id, True)
+        except Exception as db_err:
+            logger.error(f"Failed to set send_failed in database: {db_err}")
+
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Cheeky entry point command greeting using dynamic user identification."""
     if update.message:
@@ -315,22 +380,33 @@ async def ask_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     chat_id = update.message.chat_id
     
+    # Check mute/permission state if previously failed
+    if not await check_and_reset_chat_mute_state(update, context):
+        return
+        
     # 1. Check if a query was provided
     text_content = update.message.text or ""
     parts = text_content.split(maxsplit=1)
     if len(parts) < 2 or not parts[1].strip():
-        await update.message.reply_text(
-            "⚠️ لطفاً سوال خود را بعد از دستور بنویسید.\nمثال: `/ask پایتخت فرانسه کجاست؟`",
-            parse_mode="Markdown",
-            reply_to_message_id=update.message.message_id
-        )
+        try:
+            await update.message.reply_text(
+                "⚠️ لطفاً سوال خود را بعد از دستور بنویسید.\nمثال: `/ask پایتخت فرانسه کجاست؟`",
+                parse_mode="Markdown",
+                reply_to_message_id=update.message.message_id
+            )
+        except Exception as send_err:
+            await mark_chat_if_send_error(chat_id, send_err)
         return
         
     question = parts[1].strip()
     
     # 2. Inform user we are generating reply
-    status_msg = await update.message.reply_text("⏳ دارم فکر می‌کنم...")
-    
+    try:
+        status_msg = await update.message.reply_text("⏳ دارم فکر می‌کنم...")
+    except Exception as send_err:
+        await mark_chat_if_send_error(chat_id, send_err)
+        return
+        
     # 3. Retrieve configurations (Persona prompt, custom model, etc.)
     db_conn = await database.get_db_connection(config.DB_FILE)
     custom_model = None
@@ -403,9 +479,14 @@ async def ask_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await status_msg.edit_text(bot_response)
         
     except Exception as e:
+        await mark_chat_if_send_error(chat_id, e)
         logger.error(f"Error in ask_handler: {e}")
         await database.log_error(config.DB_FILE, "ASK_HANDLER_ERROR", f"Error in ask_handler: {e}", traceback.format_exc())
-        await status_msg.edit_text("مغزم ارور داد... یه بار دیگه بپرس 🚶‍♂️")
+        if not isinstance(e, TelegramError):
+            try:
+                await status_msg.edit_text("مغزم ارور داد... یه بار دیگه بپرس 🚶‍♂️")
+            except Exception as send_err:
+                await mark_chat_if_send_error(chat_id, send_err)
 
 
 async def transcribe_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -809,12 +890,24 @@ async def tldr_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
         
     chat_id = update.message.chat_id
-    await context.bot.send_chat_action(chat_id=chat_id, action="typing")
     
+    # Check mute/permission state if previously failed
+    if not await check_and_reset_chat_mute_state(update, context):
+        return
+
+    try:
+        await context.bot.send_chat_action(chat_id=chat_id, action="typing")
+    except Exception as action_err:
+        await mark_chat_if_send_error(chat_id, action_err)
+        return
+        
     # Get up to 150 messages for a robust TL;DR
     history = await database.get_chat_history(config.DB_FILE, chat_id, limit=150)
     if not history:
-        await update.message.reply_text("هیچ دیتایی تو این چت ثبت نشده که بخوام خلاصه‌اش کنم! بنالید تا ببینم چخبره 🗿")
+        try:
+            await update.message.reply_text("هیچ دیتایی تو این چت ثبت نشده که بخوام خلاصه‌اش کنم! بنالید تا ببینم چخبره 🗿")
+        except Exception as send_err:
+            await mark_chat_if_send_error(chat_id, send_err)
         return
         
     transcript_lines = []
@@ -873,11 +966,16 @@ async def tldr_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
         await update.message.reply_text(response.text if response.text else "نتونستم بخونمش، یه جای کار میلنگه.")
     except Exception as e:
+        await mark_chat_if_send_error(chat_id, e)
         error_msg = str(e)
         stack = traceback.format_exc()
         logger.error(f"GenAI error: {e}")
         await database.log_error(config.DB_FILE, "GENAI_ERROR", error_msg, stack)
-        await update.message.reply_text("مغزم ارور داد از بس حرف مفت زدین... دفعه بعد 🚶‍♂️")
+        if not isinstance(e, TelegramError):
+            try:
+                await update.message.reply_text("مغزم ارور داد از بس حرف مفت زدین... دفعه بعد 🚶‍♂️")
+            except Exception as send_err:
+                await mark_chat_if_send_error(chat_id, send_err)
 
 async def cobalt_fallback_download(url: str, output_path: str) -> tuple[bool, str]:
     import aiohttp
@@ -1227,59 +1325,64 @@ async def download_instagram_post(url: str, cookies_path: str = None) -> tuple[l
 
 async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_TYPE, url: str):
     chat_id = update.message.chat_id
-    status_msg = await update.message.reply_text("⏳ دارم مدیا رو میکشم بیرون... وایسا...")
     
+    # Check mute/permission state if previously failed
+    if not await check_and_reset_chat_mute_state(update, context):
+        return
+
     filename = f"video_{uuid.uuid4().hex}.mp4"
     thumbnail_filename = f"thumb_{uuid.uuid4().hex}.jpg"
     
-    # Cookies check
-    cookies_data_path = os.path.join(os.path.dirname(config.DB_FILE), "cookies.txt")
-    cookies_root_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "cookies.txt")
-    cookies_path = cookies_data_path if os.path.exists(cookies_data_path) else (cookies_root_path if os.path.exists(cookies_root_path) else None)
+    try:
+        status_msg = await update.message.reply_text("⏳ دارم مدیا رو میکشم بیرون... وایسا...")
+        
+        # Cookies check
+        cookies_data_path = os.path.join(os.path.dirname(config.DB_FILE), "cookies.txt")
+        cookies_root_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "cookies.txt")
+        cookies_path = cookies_data_path if os.path.exists(cookies_data_path) else (cookies_root_path if os.path.exists(cookies_root_path) else None)
 
-    # If it's an Instagram link, try downloading it as a post/carousel first
-    if "instagram.com" in url:
-        try:
-            items, metadata = await download_instagram_post(url, cookies_path)
-            if items:
-                # Format caption
-                caption = metadata.get('caption', '').strip()
-                webpage_url = metadata.get('webpage_url', url)
-                
-                # Limit caption length for Telegram (max 1024 chars for captions)
-                max_caption_len = 800
-                if len(caption) > max_caption_len:
-                    caption = caption[:max_caption_len] + "..."
+        # If it's an Instagram link, try downloading it as a post/carousel first
+        if "instagram.com" in url:
+            try:
+                items, metadata = await download_instagram_post(url, cookies_path)
+                if items:
+                    # Format caption
+                    caption = metadata.get('caption', '').strip()
+                    webpage_url = metadata.get('webpage_url', url)
+                    
+                    # Limit caption length for Telegram (max 1024 chars for captions)
+                    max_caption_len = 800
+                    if len(caption) > max_caption_len:
+                        caption = caption[:max_caption_len] + "..."
 
-                single_media_type = items[0]['type'] if len(items) == 1 else "video"
-                formatted_caption = format_media_caption(caption, webpage_url, "instagram", single_media_type)
+                    single_media_type = items[0]['type'] if len(items) == 1 else "video"
+                    formatted_caption = format_media_caption(caption, webpage_url, "instagram", single_media_type)
 
-                if len(items) == 1:
-                    # Single item send
-                    item = items[0]
-                    if item['type'] == 'photo':
-                        with open(item['path'], 'rb') as photo:
-                            await context.bot.send_photo(
-                                chat_id=chat_id,
-                                photo=photo,
-                                caption=formatted_caption,
-                                parse_mode="HTML",
-                                reply_to_message_id=update.message.message_id
-                            )
-                    else:
-                        # Video: extract metadata & thumbnail
-                        path = item['path']
-                        metadata_vid = await asyncio.to_thread(get_video_metadata, path)
-                        duration = metadata_vid.get("duration")
-                        width = metadata_vid.get("width")
-                        height = metadata_vid.get("height")
-                        
-                        t_filename = f"thumb_{uuid.uuid4().hex}.jpg"
-                        has_thumb = await asyncio.to_thread(generate_video_thumbnail, path, t_filename)
-                        
-                        try:
-                            with open(path, 'rb') as video:
-                                thumb_file = open(t_filename, 'rb') if (has_thumb and os.path.exists(t_filename)) else None
+                    if len(items) == 1:
+                        # Single item send
+                        item = items[0]
+                        if item['type'] == 'photo':
+                            with open(item['path'], 'rb') as photo:
+                                await context.bot.send_photo(
+                                    chat_id=chat_id,
+                                    photo=photo,
+                                    caption=formatted_caption,
+                                    parse_mode="HTML",
+                                    reply_to_message_id=update.message.message_id
+                                )
+                        else:
+                            # Video: extract metadata & thumbnail
+                            has_thumb = await asyncio.to_thread(generate_video_thumbnail, item['path'], thumbnail_filename)
+                            metadata = await asyncio.to_thread(get_video_metadata, item['path'])
+                            duration = metadata.get("duration")
+                            width = metadata.get("width")
+                            height = metadata.get("height")
+
+                            with open(item['path'], 'rb') as video:
+                                thumb_file = None
+                                if has_thumb and os.path.exists(thumbnail_filename):
+                                    thumb_file = open(thumbnail_filename, 'rb')
+                                
                                 await context.bot.send_video(
                                     chat_id=chat_id,
                                     video=video,
@@ -1294,127 +1397,92 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
                                 )
                                 if thumb_file:
                                     thumb_file.close()
-                        finally:
-                            if os.path.exists(t_filename):
-                                os.remove(t_filename)
-                else:
-                    # Multi-item album
-                    media_group = []
-                    open_files = [] # Keep track to close them later
-                    
-                    for idx, item in enumerate(items):
-                        path = item['path']
-                        # Caption goes on the first item only
-                        item_caption = formatted_caption if idx == 0 else None
-                        item_parse_mode = "HTML" if idx == 0 else None
+                    else:
+                        # Media Group send (Carousel)
+                        media_group = []
+                        open_files = []
+                        for idx, item in enumerate(items):
+                            # First item gets the caption
+                            item_caption = formatted_caption if idx == 0 else None
+                            
+                            if item['type'] == 'photo':
+                                f = open(item['path'], 'rb')
+                                open_files.append(f)
+                                media_group.append(InputMediaPhoto(media=f, caption=item_caption, parse_mode="HTML"))
+                            else:
+                                f = open(item['path'], 'rb')
+                                open_files.append(f)
+                                media_group.append(InputMediaVideo(media=f, caption=item_caption, parse_mode="HTML", supports_streaming=True))
                         
-                        if item['type'] == 'photo':
-                            f = open(path, 'rb')
-                            open_files.append(f)
-                            media_group.append(InputMediaPhoto(
-                                media=f,
-                                caption=item_caption,
-                                parse_mode=item_parse_mode
-                            ))
-                        else:
-                            # Video
-                            metadata_vid = await asyncio.to_thread(get_video_metadata, path)
-                            duration = metadata_vid.get("duration")
-                            width = metadata_vid.get("width")
-                            height = metadata_vid.get("height")
-                            
-                            t_filename = f"thumb_{uuid.uuid4().hex}.jpg"
-                            has_thumb = await asyncio.to_thread(generate_video_thumbnail, path, t_filename)
-                            
-                            f = open(path, 'rb')
-                            open_files.append(f)
-                            
-                            thumb_f = None
-                            if has_thumb and os.path.exists(t_filename):
-                                thumb_f = open(t_filename, 'rb')
-                                open_files.append(thumb_f)
-                                
-                            media_group.append(InputMediaVideo(
-                                media=f,
-                                thumbnail=thumb_f,
-                                width=width,
-                                height=height,
-                                duration=duration,
-                                supports_streaming=True,
-                                caption=item_caption,
-                                parse_mode=item_parse_mode
-                            ))
-                            
-                    try:
-                        await context.bot.send_media_group(
-                            chat_id=chat_id,
-                            media=media_group,
-                            reply_to_message_id=update.message.message_id
-                        )
-                    finally:
-                        for f in open_files:
-                            try:
-                                f.close()
-                            except:
-                                pass
-                
-                # Cleanup downloaded files
-                for item in items:
-                    if os.path.exists(item['path']):
-                        os.remove(item['path'])
-                await status_msg.delete()
-                return
-        except Exception as ig_err:
-            logger.warning(f"Instagram dedicated downloader failed: {ig_err}")
-            # For Instagram links, NEVER fall through to the generic video downloader —
-            # it uses yt-dlp which cannot handle image posts and would produce the same error.
-            # Instead, inform the user directly.
-            await status_msg.edit_text(
-                "❌ نتونستم این پست اینستاگرامو بگیرم.\n\n"
-                "📸 اگه پست عکسه و خصوصی نیست، ممکنه مشکل از کوکی‌ها باشه — "
-                "از بخش *Conf* پنل ادمین کوکی‌های جدید آپلود کن.",
-                parse_mode="Markdown"
-            )
-            return
-    
-    async def try_send_video_file(path: str, caption: str = None) -> bool:
-        if not os.path.exists(path):
-            return False
-            
-        metadata = await asyncio.to_thread(get_video_metadata, path)
-        duration = metadata.get("duration")
-        width = metadata.get("width")
-        height = metadata.get("height")
-        
-        has_thumb = await asyncio.to_thread(generate_video_thumbnail, path, thumbnail_filename)
-        
-        try:
-            with open(path, 'rb') as video:
-                thumb_file = None
-                if has_thumb and os.path.exists(thumbnail_filename):
-                    thumb_file = open(thumbnail_filename, 'rb')
-                
-                await context.bot.send_video(
-                    chat_id=chat_id,
-                    video=video,
-                    duration=duration,
-                    width=width,
-                    height=height,
-                    thumbnail=thumb_file,
-                    supports_streaming=True,
-                    caption=caption,
-                    parse_mode="HTML",
-                    reply_to_message_id=update.message.message_id
+                        try:
+                            await context.bot.send_media_group(
+                                chat_id=chat_id,
+                                media=media_group,
+                                reply_to_message_id=update.message.message_id
+                            )
+                        finally:
+                            for f in open_files:
+                                try:
+                                    f.close()
+                                except:
+                                    pass
+                    
+                    # Cleanup downloaded files
+                    for item in items:
+                        if os.path.exists(item['path']):
+                            os.remove(item['path'])
+                    await status_msg.delete()
+                    return
+            except Exception as ig_err:
+                logger.warning(f"Instagram dedicated downloader failed: {ig_err}")
+                # For Instagram links, NEVER fall through to the generic video downloader —
+                # it uses yt-dlp which cannot handle image posts and would produce the same error.
+                # Instead, inform the user directly.
+                await status_msg.edit_text(
+                    "❌ نتونستم این پست اینستاگرامو بگیرم.\n\n"
+                    "📸 اگه پست عکسه و خصوصی نیست، ممکنه مشکل از کوکی‌ها باشه — "
+                    "از بخش *Conf* پنل ادمین کوکی‌های جدید آپلود کن.",
+                    parse_mode="Markdown"
                 )
-                if thumb_file:
-                    thumb_file.close()
-            return True
-        except Exception as send_err:
-            logger.error(f"Failed to send video file: {send_err}")
-            await database.log_error(config.DB_FILE, "TELEGRAM_SEND_ERROR", f"Failed to send video file: {send_err}", traceback.format_exc())
-            raise send_err
+                return
+        
+        async def try_send_video_file(path: str, caption: str = None) -> bool:
+            if not os.path.exists(path):
+                return False
+                
+            metadata = await asyncio.to_thread(get_video_metadata, path)
+            duration = metadata.get("duration")
+            width = metadata.get("width")
+            height = metadata.get("height")
+            
+            has_thumb = await asyncio.to_thread(generate_video_thumbnail, path, thumbnail_filename)
+            
+            try:
+                with open(path, 'rb') as video:
+                    thumb_file = None
+                    if has_thumb and os.path.exists(thumbnail_filename):
+                        thumb_file = open(thumbnail_filename, 'rb')
+                    
+                    await context.bot.send_video(
+                        chat_id=chat_id,
+                        video=video,
+                        duration=duration,
+                        width=width,
+                        height=height,
+                        thumbnail=thumb_file,
+                        supports_streaming=True,
+                        caption=caption,
+                        parse_mode="HTML",
+                        reply_to_message_id=update.message.message_id
+                    )
+                    if thumb_file:
+                        thumb_file.close()
+                return True
+            except Exception as send_err:
+                logger.error(f"Failed to send video file: {send_err}")
+                await database.log_error(config.DB_FILE, "TELEGRAM_SEND_ERROR", f"Failed to send video file: {send_err}", traceback.format_exc())
+                raise send_err
 
-    try:
         # Step 1: Try yt-dlp first
         video_metadata = None
         try:
@@ -1473,6 +1541,9 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
         else:
             await status_msg.edit_text("❌ نتونستم دانلودش کنم، یوتوب/اینستا گیر داده.")
             
+    except Exception as outer_err:
+        await mark_chat_if_send_error(chat_id, outer_err)
+        logger.error(f"Error in download_and_send_video: {outer_err}")
     finally:
         for fpath in [filename, thumbnail_filename]:
             if os.path.exists(fpath):
@@ -1487,6 +1558,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     chat_id = update.message.chat.id
+
+    # Check mute/permission state if previously failed
+    if not await check_and_reset_chat_mute_state(update, context):
+        return
     user_id = update.message.from_user.id
     sender_username = update.message.from_user.username
     is_admin = sender_username and sender_username.lower() in config.ALLOWED_ADMINS
@@ -1749,6 +1824,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 except Exception as voice_send_err:
                     logger.error(f"Failed to send voice reply: {voice_send_err}")
                     await database.log_error(config.DB_FILE, "TELEGRAM_SEND_ERROR", f"Failed to send voice reply: {voice_send_err}", traceback.format_exc())
+                    await mark_chat_if_send_error(chat_id, voice_send_err)
                 finally:
                     if os.path.exists(voice_file):
                         try:
@@ -1757,17 +1833,29 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             pass
                             
         if not sent_voice:
-            await update.message.reply_text(bot_response)
+            try:
+                await update.message.reply_text(bot_response)
+            except Exception as text_send_err:
+                await mark_chat_if_send_error(chat_id, text_send_err)
+                raise text_send_err
             
         await database.store_message(db_path=config.DB_FILE, chat_id=chat_id, role="model", sender_name=bot_username or "Bot", text=bot_response)
 
     except asyncio.TimeoutError:
         logger.error("GenAI pipeline processing exceeded standard time boundaries.")
         await database.log_error(config.DB_FILE, "GENAI_TIMEOUT_ERROR", "GenAI pipeline processing exceeded standard time boundaries.", traceback.format_exc())
-        await update.message.reply_text("سرعت اینترنت خودت داغونه یا گوگل ریده؟ طول کشید، دوباره بگو 🥱")
+        try:
+            await update.message.reply_text("سرعت اینترنت خودت داغونه یا گوگل ریده؟ طول کشید، دوباره بگو 🥱")
+        except Exception as send_err:
+            await mark_chat_if_send_error(chat_id, send_err)
     except Exception as e:
+        await mark_chat_if_send_error(chat_id, e)
         error_msg = str(e)
         stack = traceback.format_exc()
         logger.error(f"Execution handling failure: {e}")
         await database.log_error(config.DB_FILE, "GENAI_ERROR", error_msg, stack)
-        await update.message.reply_text(f"سیستم ریپ زد {sender_name}، یه بار دیگه بگو 🚶‍♂️")
+        if not isinstance(e, TelegramError):
+            try:
+                await update.message.reply_text(f"سیستم ریپ زد {sender_name}، یه بار دیگه بگو 🚶‍♂️")
+            except Exception as send_err:
+                await mark_chat_if_send_error(chat_id, send_err)
