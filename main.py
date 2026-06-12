@@ -134,6 +134,44 @@ async def post_init(application: Application) -> None:
     """Safe post-initialization hook to run db setup inside the bot's native active loop."""
     await database.init_db(config.DB_FILE)
     logger.info("Database and dynamic config successfully loaded inside active runtime loop.")
+    
+    # Clean up any residual temp files on startup (no leftover files)
+    try:
+        import os
+        import re
+        temp_dir = os.path.join(os.path.dirname(__file__), "temp_downloads")
+        if os.path.exists(temp_dir):
+            cleaned_count = 0
+            for filename in os.listdir(temp_dir):
+                file_path = os.path.join(temp_dir, filename)
+                if os.path.isfile(file_path) or os.path.islink(file_path):
+                    os.unlink(file_path)
+                    cleaned_count += 1
+            if cleaned_count > 0:
+                logger.info(f"Cleaned up {cleaned_count} residual guest temp files from temp_downloads on startup.")
+        
+        # Clean up residual files in root directory
+        root_dir = os.path.dirname(__file__) or "."
+        cleaned_root_count = 0
+        patterns = [
+            r"^video_[a-f0-9]{32}\.mp4$",
+            r"^thumb_[a-f0-9]{32}\.jpg$",
+            r"^tts_[a-f0-9]{32}\.(mp3|ogg)$",
+            r"^gemini_tts_[a-f0-9]{32}\..*$",
+            r"^ig_item_\d+_[a-f0-9]{32}\..*$",
+            r"^temp_media_[a-f0-9]{32}\..*$"
+        ]
+        for filename in os.listdir(root_dir):
+            if any(re.match(p, filename) for p in patterns):
+                file_path = os.path.join(root_dir, filename)
+                if os.path.isfile(file_path):
+                    os.unlink(file_path)
+                    cleaned_root_count += 1
+        if cleaned_root_count > 0:
+            logger.info(f"Cleaned up {cleaned_root_count} residual media/tts files from root directory on startup.")
+    except Exception as cleanup_err:
+        logger.error(f"Failed to perform startup temp files cleanup: {cleanup_err}")
+
     from src import server
     await server.setup_server(application)
     

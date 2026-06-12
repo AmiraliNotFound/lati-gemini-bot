@@ -45,7 +45,7 @@ def validate_telegram_webapp_data(token: str, init_data: str) -> bool:
     except Exception as e:
         logger.error(f"Error validating WebApp data: {e}")
         try:
-            asyncio.run(database.log_error(config.DB_FILE, "WEBAPP_AUTH_ERROR", f"Error validating WebApp data: {e}", traceback.format_exc()))
+            asyncio.create_task(database.log_error(config.DB_FILE, "WEBAPP_AUTH_ERROR", f"Error validating WebApp data: {e}", traceback.format_exc()))
         except Exception:
             pass
         return False
@@ -101,7 +101,7 @@ def check_auth(request):
     except Exception as e:
         logger.error(f"Failed to check admin permissions: {e}")
         try:
-            asyncio.run(database.log_error(config.DB_FILE, "WEBAPP_AUTH_ERROR", f"Failed to check admin permissions: {e}", traceback.format_exc()))
+            asyncio.create_task(database.log_error(config.DB_FILE, "WEBAPP_AUTH_ERROR", f"Failed to check admin permissions: {e}", traceback.format_exc()))
         except Exception:
             pass
         raise web.HTTPForbidden(
@@ -527,6 +527,7 @@ async def setup_server(bot_app):
     cors.add(app.router.add_post('/api/chat/leave', leave_chat_handler))
     cors.add(app.router.add_post('/api/chat/alert', alert_chat_handler))
     cors.add(app.router.add_get('/api/chat/top_users', get_top_users_handler))
+    cors.add(app.router.add_post('/api/chat/send_profile_link', send_profile_link_handler))
     cors.add(app.router.add_get('/api/model_limits', get_model_limits))
     # Serve temporary downloads securely for Telegram guest mode fetches
     temp_dir = os.path.join(os.path.dirname(__file__), "..", "temp_downloads")

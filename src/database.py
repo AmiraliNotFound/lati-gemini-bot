@@ -157,6 +157,16 @@ async def init_db(db_path: str):
             )
         ''')
         await db.execute("CREATE INDEX IF NOT EXISTS idx_requests_timestamp ON api_requests_log(timestamp);")
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS bandwidth_usage (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                bytes_downloaded INTEGER,
+                bytes_uploaded INTEGER,
+                platform TEXT,
+                mode TEXT
+            )
+        ''')
         await db.commit()
         
         # Ensure all default configurations exist in database, and load them

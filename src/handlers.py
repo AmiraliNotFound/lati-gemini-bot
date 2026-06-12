@@ -1199,11 +1199,7 @@ def get_video_metadata(video_path: str) -> dict:
             return metadata
     except Exception as e:
         logger.error(f"Failed to query ffprobe metadata: {e}")
-        try:
-            asyncio.run(database.log_error(config.DB_FILE, "FFPROBE_ERROR", f"Failed to query ffprobe metadata: {e}", traceback.format_exc()))
-        except Exception:
-            pass
-    return {}
+        raise e
 
 def generate_video_thumbnail(video_path: str, thumbnail_path: str) -> bool:
     cmd = [
@@ -1215,11 +1211,7 @@ def generate_video_thumbnail(video_path: str, thumbnail_path: str) -> bool:
         return result.returncode == 0
     except Exception as e:
         logger.error(f"Failed to generate video thumbnail: {e}")
-        try:
-            asyncio.run(database.log_error(config.DB_FILE, "FFMPEG_ERROR", f"Failed to generate video thumbnail: {e}", traceback.format_exc()))
-        except Exception:
-            pass
-    return False
+        raise e
 
 async def download_instagram_post(url: str, cookies_path: str = None) -> tuple[list[dict], dict]:
     """
@@ -1234,6 +1226,7 @@ async def download_instagram_post(url: str, cookies_path: str = None) -> tuple[l
     import aiohttp
     import re
     import http.cookiejar
+    import tempfile
 
     # Extract clean shortcode from any Instagram URL variant
     shortcode_match = re.search(r'instagram\.com/(?:p|reel|tv|reels)/([A-Za-z0-9_-]+)', url)
@@ -1255,7 +1248,7 @@ async def download_instagram_post(url: str, cookies_path: str = None) -> tuple[l
             download_comments=False,
             download_geotags=False,
             quiet=True,
-            dirname_pattern='/tmp',  # We manage filenames ourselves
+            dirname_pattern=os.path.join(tempfile.gettempdir(), 'instaloader'),
         )
 
         # Inject Netscape cookies into instaloader's requests session
@@ -1503,12 +1496,22 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
                         except:
                             pass
             else:
-                metadata = await asyncio.to_thread(get_video_metadata, path)
+                try:
+                    metadata = await asyncio.to_thread(get_video_metadata, path)
+                except Exception as meta_err:
+                    logger.error(f"Metadata extraction failed: {meta_err}")
+                    await database.log_error(config.DB_FILE, "FFPROBE_ERROR", f"Failed to query ffprobe metadata: {meta_err}", traceback.format_exc())
+                    metadata = {}
                 duration = metadata.get("duration")
                 width = metadata.get("width")
                 height = metadata.get("height")
                 
-                has_thumb = await asyncio.to_thread(generate_video_thumbnail, path, thumbnail_filename)
+                try:
+                    has_thumb = await asyncio.to_thread(generate_video_thumbnail, path, thumbnail_filename)
+                except Exception as thumb_err:
+                    logger.error(f"Thumbnail generation failed: {thumb_err}")
+                    await database.log_error(config.DB_FILE, "FFMPEG_ERROR", f"Failed to generate video thumbnail: {thumb_err}", traceback.format_exc())
+                    has_thumb = False
                 
                 try:
                     with open(path, 'rb') as video:
@@ -1571,8 +1574,18 @@ async def download_and_send_video(update: Update, context: ContextTypes.DEFAULT_
                                 )
                         else:
                             # Video: extract metadata & thumbnail
-                            has_thumb = await asyncio.to_thread(generate_video_thumbnail, item['path'], thumbnail_filename)
-                            metadata = await asyncio.to_thread(get_video_metadata, item['path'])
+                            try:
+                                has_thumb = await asyncio.to_thread(generate_video_thumbnail, item['path'], thumbnail_filename)
+                            except Exception as thumb_err:
+                                logger.error(f"Thumbnail generation failed: {thumb_err}")
+                                await database.log_error(config.DB_FILE, "FFMPEG_ERROR", f"Failed to generate video thumbnail: {thumb_err}", traceback.format_exc())
+                                has_thumb = False
+                            try:
+                                metadata = await asyncio.to_thread(get_video_metadata, item['path'])
+                            except Exception as meta_err:
+                                logger.error(f"Metadata extraction failed: {meta_err}")
+                                await database.log_error(config.DB_FILE, "FFPROBE_ERROR", f"Failed to query ffprobe metadata: {meta_err}", traceback.format_exc())
+                                metadata = {}
                             duration = metadata.get("duration")
                             width = metadata.get("width")
                             height = metadata.get("height")
