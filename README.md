@@ -53,10 +53,9 @@ A React-based GUI console built directly inside the Telegram interface featuring
 - **Settings Tab**: Dynamically configure context windows, API timeouts, system persona prompts, model fallback queues, TTS engine settings (voice pitch, prebuilt voices), daily summary schedulers, and custom persona presets. Includes cookie rotation and yt-dlp scraper updater tools.
 - **Limits Tab**: Real-time monitoring of Gemini API usage with per-model RPM/RPD meters, token limits, error counts, and visual progress bars showing how close you are to quota ceilings.
 
-### 8. 🤖 RTL-Safe Dynamic AI Help
-- **Dynamic Help Assembly**: Automatically queries Gemini on the fly to write a personalized, sarcastic Persian help text matching the bot's configured persona settings.
-- **RTL-Safe HTML Formatting**: Uses strict HTML tags (such as `<code>` for commands and `<blockquote>` for options) to ensure text flows correctly from Right-to-Left (RTL) on all Telegram clients without directional glitches.
-- **Resilient Fallback**: Includes a robust pre-compiled HTML help layout that automatically displays if the API times out or returns syntax errors, ensuring the command is never broken.
+### 8. 🤖 RTL-Safe Persian Help
+- **Casual Tehrani Tone**: The `/help` command displays a clean, informal Persian guide written in everyday Tehrani slang — approachable and easy to follow.
+- **RTL-Safe HTML Formatting**: Uses strict HTML tags (such as `<code>` for commands and `<blockquote>` for usage examples) to ensure text flows correctly from Right-to-Left (RTL) on all Telegram clients without directional glitches.
 
 ---
 

@@ -337,7 +337,7 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Provides a list of bot capabilities with dynamic persona generation and RTL-safe HTML formatting."""
+    """Provides a list of bot capabilities with RTL-safe HTML formatting."""
     if not update.message:
         return
         
@@ -351,118 +351,44 @@ async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🔗 سورس ربات (گیت‌هاب)", url="https://github.com/AmiraliNotFound/lati-gemini-bot")]
     ])
     
-    # Pre-compiled bulletproof local fallback text (RTL and HTML safe)
-    fallback_text = (
-        f"<b>🤖 راهنمای ربات لاتی جمنای</b>\n\n"
-        f"من یه ربات هوشمند و حاضر جوابم. می‌تونی تو گروه‌ها صدام کنی یا ریپلای بزنی تا جوابتو بدم. ویس، عکس و متن هم برام فرقی نداره! 😎🤙\n\n"
-        f"📌 <b>دستورات من:</b>\n"
-        f"🔹 <code>/start</code> - بیدار کردن ربات\n"
-        f"🔹 <code>/help</code> - همین راهنمای پیش رو\n"
-        f"🔹 <code>/tldr</code> - خلاصه‌سازی پیام‌های گروه (۱۵۰ پیام آخر)\n"
-        f"<blockquote>روی پیام‌ها ریپلای بزن و بنویس <code>/tldr</code></blockquote>\n"
-        f"🔹 <code>/ask</code> - پرسیدن سوال مستقیم بدون در نظر گرفتن تاریخچه چت\n"
-        f"<blockquote>مثال: <code>/ask پایتخت فرانسه کجاست؟</code></blockquote>\n"
-        f"🔹 <code>/transcribe</code> - تبدیل ویس ریپلای شده به متن\n"
-        f"<blockquote>روی ویس ریپلای بزن و بنویس <code>/transcribe</code></blockquote>\n"
-        f"🔹 <code>/support</code> - ارسال پیام به پشتیبانی (فقط در پی‌وی ربات)\n"
-        f"<blockquote>مثال: <code>/support سلام ربات، خسته نباشی</code></blockquote>\n\n"
-        f"🎥 <b>دانلودر هوشمند و حالت مهمان (Guest Mode):</b>\n"
-        f"کافیه لینک <b>اینستاگرام</b>، <b>یوتیوب</b> یا <b>پینترست</b> بفرستی تا مستقیم برات دانلودش کنم!\n\n"
-        f"حتی می‌تونی بدون اد کردن من تو چت‌ها یا گروه‌ها، ازم استفاده کنی:\n"
-        f"۱. لینک مدیا رو بفرست و روش ریپلای بزن و بنویسی <code>@{bot_username}</code>\n"
-        f"۲. یا مستقیماً بفرست: <code>@{bot_username} &lt;لینک&gt;</code>"
+    # Static help text — casual Tehrani tone, RTL-safe HTML
+    help_text = (
+        f"<b>🤖 سلاااام! راهنمای ربات لاتی</b>\n\n"
+        f"خب ببین، من یه ربات باحالم که باهات چت می‌کنم، جوابتو میدم، ویست رو تبدیل به متن می‌کنم و کلی کار دیگه. "
+        f"کافیه تو گروه ریپلای بزنی روم یا تگم کنی، بقیه‌ش با من 😎\n\n"
+        f"📌 <b>دستورات:</b>\n"
+        f"🔹 <code>/start</code> — شروع کار با ربات\n"
+        f"🔹 <code>/help</code> — همین صفحه‌ای که الان داری می‌خونی\n"
+        f"🔹 <code>/tldr</code> — خلاصه چت گروه (۱۵۰ پیام آخر رو بهت میگم چی شد)\n"
+        f"<blockquote>رو پیاما ریپلای بزن بنویس <code>/tldr</code></blockquote>\n"
+        f"🔹 <code>/ask</code> — یه سوال مستقیم بپرس، بدون تاریخچه چت\n"
+        f"<blockquote>مثلاً: <code>/ask پایتخت ژاپن کجاست؟</code></blockquote>\n"
+        f"🔹 <code>/transcribe</code> — ویس رو تبدیل کن به متن\n"
+        f"<blockquote>رو ویس ریپلای بزن بنویس <code>/transcribe</code></blockquote>\n"
+        f"🔹 <code>/support</code> — پیام بفرست واسه پشتیبانی (فقط پی‌وی)\n"
+        f"<blockquote>مثلاً: <code>/support یه باگ پیدا کردم</code></blockquote>\n\n"
+        f"🎥 <b>دانلودر مدیا:</b>\n"
+        f"لینک <b>اینستاگرام</b>، <b>یوتیوب</b> یا <b>پینترست</b> بفرست، خودم برات دانلودش می‌کنم!\n\n"
+        f"حتی لازم نیست منو اد کنی تو چت، می‌تونی اینجوری صدام کنی:\n"
+        f"۱. رو لینک ریپلای بزن بنویس <code>@{bot_username}</code>\n"
+        f"۲. یا مستقیم بفرست: <code>@{bot_username} &lt;لینک&gt;</code>"
     )
     if is_admin:
-        fallback_text += (
-            f"\n\n👑 <b>دستورات مدیریت:</b>\n"
-            f"🔹 <code>/reply</code> - پاسخ مستقیم به پیام پشتیبانی کاربر\n"
-            f"<blockquote>مثال: <code>/reply 12345678 سلام پیام شما رسید</code></blockquote>\n"
-            f"🔹 <code>/admin</code> - باز کردن پنل مدیریت وب"
+        help_text += (
+            f"\n\n👑 <b>دستورات ادمین:</b>\n"
+            f"🔹 <code>/reply</code> — جواب دادن به تیکت پشتیبانی کاربر\n"
+            f"<blockquote>مثلاً: <code>/reply 12345678 سلام پیامت رسید</code></blockquote>\n"
+            f"🔹 <code>/admin</code> — باز کردن پنل مدیریت"
         )
 
     try:
-        # Dynamic Help Assembly via Gemini matching the bot's configured persona
-        client = get_ai_client()
-        model_id = config.runtime_config.get("MODEL_ID", "gemini-2.5-flash")
-        timeout_threshold = float(config.runtime_config.get("TIMEOUT", 10.0))
-        
-        commands_desc = (
-            "- /start: Wakes the bot up / start banter\n"
-            "- /help: Displays this help message\n"
-            "- /tldr: Summarizes the last 150 group chat messages sarcasticly\n"
-            "- /ask <question>: Asks a direct question to Gemini without history\n"
-            "- /transcribe: Transcribes the replied voice note\n"
-            "- /support <msg>: Forward support query to admins (DMs only)\n"
-        )
-        if is_admin:
-            commands_desc += (
-                "- /reply <user_id> <msg>: (Admins only) Reply to support query\n"
-                "- /admin: (Admins only) Open the web admin dashboard link\n"
-            )
-            
-        prompt = (
-            f"You are the helper system for a Telegram Bot named @{bot_username}.\n"
-            f"Here is the list of bot commands and capabilities:\n"
-            f"{commands_desc}"
-            f"- Auto media downloader: Detects Instagram, YouTube, and Pinterest links, automatically downloading them. Supports Guest mode via @{bot_username}.\n\n"
-            "TASK:\n"
-            "Write a teasing, sarcastic, and witty Persian help message in Tehrani/lati slang matching the default persona instruction. "
-            "Address the user directly and make it funny.\n"
-            "CRITICAL FORMAT RULES:\n"
-            "1. You MUST ONLY use these Telegram-supported HTML tags: <b>, <i>, <u>, <s>, <code>, <pre>, <a>, <blockquote>. NO OTHER TAGS.\n"
-            "2. NEVER use <p>, <br>, <div>, <span>, <h1>, <h2>, <h3>, <h4>, <h5>, <h6>, <ul>, <ol>, <li>, <hr>, <img>, <table>. These will CRASH the output.\n"
-            "3. Use plain newlines (\\n) for line breaks instead of <br> or <p> tags.\n"
-            "4. To avoid RTL (Right-to-Left) formatting bugs, always put commands inside <code>/command</code> tags.\n"
-            "5. Use <blockquote>...</blockquote> for descriptions or guidelines to make them look premium and prevent text mixing.\n"
-            "6. The output must be strictly valid Telegram HTML without any enclosing ```html code blocks or extra text. Output ONLY the raw Telegram HTML."
-        )
-        
-        system_instruction = (
-            "You are a sarcastic Persian bot help assistant. You format help text in beautiful, clean Telegram HTML. "
-            "Do NOT output markdown. ONLY these HTML tags are allowed: <b>, <i>, <u>, <s>, <code>, <pre>, <a>, <blockquote>. "
-            "NEVER use <p>, <br>, <div>, <span>, <h1>-<h6>, <ul>, <ol>, <li>, <hr>, or any other HTML tag."
-        )
-        
-        response = await asyncio.wait_for(
-            client.models.generate_content(
-                model=model_id,
-                contents=[prompt],
-                config=types.GenerateContentConfig(system_instruction=system_instruction)
-            ),
-            timeout=timeout_threshold
-        )
-        await database.log_api_request(config.DB_FILE, model_id, "text", "success")
-        
-        help_text = response.text.strip()
-        # Clean any wrapping code blocks
-        help_text = re.sub(r"^```html\s*", "", help_text, flags=re.IGNORECASE)
-        help_text = re.sub(r"\s*```$", "", help_text)
-        
-        # Sanitize: strip ALL tags except the ones Telegram actually supports
-        # Telegram HTML supports: b, i, u, s, code, pre, a, blockquote, tg-spoiler, tg-emoji
-        ALLOWED_TAGS = r'b|i|u|s|code|pre|a|blockquote|tg-spoiler|tg-emoji'
-        # Remove unsupported opening tags (e.g. <p>, <div>, <h1>, <br>, <br/>, <li>, <ul>, <ol>, <span>, <hr>, <hr/>)
-        help_text = re.sub(r'<(?!/?)(?!' + ALLOWED_TAGS + r')(?!/)\w[^>]*/?>', '', help_text)
-        # Remove unsupported closing tags (e.g. </p>, </div>, </h1>)
-        help_text = re.sub(r'</(?!' + ALLOWED_TAGS + r')\w+>', '', help_text)
-        # Collapse excessive blank lines left behind by stripped tags
-        help_text = re.sub(r'\n{3,}', '\n\n', help_text).strip()
-        
         await update.message.reply_text(
             help_text,
             reply_markup=reply_markup,
             parse_mode="HTML"
         )
-    except Exception as e:
-        logger.warning(f"Failed to generate or send dynamic help: {e}. Falling back to local help.")
-        try:
-            await update.message.reply_text(
-                fallback_text,
-                reply_markup=reply_markup,
-                parse_mode="HTML"
-            )
-        except Exception as send_err:
-            await mark_chat_if_send_error(update.message.chat_id, send_err)
+    except Exception as send_err:
+        await mark_chat_if_send_error(update.message.chat_id, send_err)
 
 async def ask_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
