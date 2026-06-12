@@ -337,47 +337,119 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Provides a list of bot capabilities."""
-    if update.message:
-        bot_username = context.bot.username or "bot_username"
-        help_text = (
-            "🤖 **راهنمای ربات لاتی جمنای**\n\n"
-            "من یه ربات هوشمندم که می‌تونم متن بخونم، عکس ببینم، و ویس گوش بدم. فقط کافیه تو گروه روم ریپلای کنی یا اسممو بیاری تا جوابتو بدم.\n\n"
-            "📌 **دستورات من:**\n"
-            "🔹 /start : بیدار کردن من\n"
-            "🔹 /help : همین پیامی که داری می‌خونی\n"
-            "🔹 /tldr : خلاصه‌سازی پیام‌های گروه (فقط تو گروه‌ها کار میکنه)\n"
-            "🔹 /ask <سوال> : پرسیدن سوال مستقیم بدون قاتی کردن با تاریخچه چت قبلی\n"
-            "🔹 /transcribe : تبدیل ویس ریپلای شده به متن (کافیست روی ویس ریپلای کنید)\n"
-            "🔹 /support <پیام> : ارتباط با پشتیبانی و ارسال پیام به ادمین (فقط در چت خصوصی)\n\n"
-            "🎥 **دانلودر هوشمند و حالت مهمان (Guest Mode):**\n"
-            "اگه لینک **اینستاگرام**، **یوتوب** یا **پینترست** بفرستی، مدیا (ویدیو یا عکس) رو مستقیم برات همینجا دانلود می‌کنم و می‌فرستم!\n\n"
-            "حتی می‌تونی تو چت‌های ۲ نفره با دوستات یا هر گروهی بدون اینکه من عضو باشم ازم استفاده کنی! فقط کافیه:\n"
-            f"۱. لینک مدیا رو بفرستی و روش ریپلای کنی و بنویسی `@{bot_username}`\n"
-            f"۲. یا مستقیماً بفرستی: `@{bot_username} <لینک>`"
-        )
+    """Provides a list of bot capabilities with dynamic persona generation and RTL-safe HTML formatting."""
+    if not update.message:
+        return
         
-        is_admin = False
-        if update.message.from_user and update.message.from_user.username:
-            username = update.message.from_user.username.lower()
-            is_admin = username in config.ALLOWED_ADMINS
-            
+    bot_username = context.bot.username or "bot_username"
+    is_admin = False
+    if update.message.from_user and update.message.from_user.username:
+        username = update.message.from_user.username.lower()
+        is_admin = username in config.ALLOWED_ADMINS
+        
+    reply_markup = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔗 سورس ربات (گیت‌هاب)", url="https://github.com/AmiraliNotFound/lati-gemini-bot")]
+    ])
+    
+    # Pre-compiled bulletproof local fallback text (RTL and HTML safe)
+    fallback_text = (
+        f"<b>🤖 راهنمای ربات لاتی جمنای</b>\n\n"
+        f"من یه ربات هوشمند و حاضر جوابم. می‌تونی تو گروه‌ها صدام کنی یا ریپلای بزنی تا جوابتو بدم. ویس، عکس و متن هم برام فرقی نداره! 😎🤙\n\n"
+        f"📌 <b>دستورات من:</b>\n"
+        f"🔹 <code>/start</code> - بیدار کردن ربات\n"
+        f"🔹 <code>/help</code> - همین راهنمای پیش رو\n"
+        f"🔹 <code>/tldr</code> - خلاصه‌سازی پیام‌های گروه (۱۵۰ پیام آخر)\n"
+        f"<blockquote>روی پیام‌ها ریپلای بزن و بنویس <code>/tldr</code></blockquote>\n"
+        f"🔹 <code>/ask</code> - پرسیدن سوال مستقیم بدون در نظر گرفتن تاریخچه چت\n"
+        f"<blockquote>مثال: <code>/ask پایتخت فرانسه کجاست؟</code></blockquote>\n"
+        f"🔹 <code>/transcribe</code> - تبدیل ویس ریپلای شده به متن\n"
+        f"<blockquote>روی ویس ریپلای بزن و بنویس <code>/transcribe</code></blockquote>\n"
+        f"🔹 <code>/support</code> - ارسال پیام به پشتیبانی (فقط در پی‌وی ربات)\n"
+        f"<blockquote>مثال: <code>/support سلام ربات، خسته نباشی</code></blockquote>\n\n"
+        f"🎥 <b>دانلودر هوشمند و حالت مهمان (Guest Mode):</b>\n"
+        f"کافیه لینک <b>اینستاگرام</b>، <b>یوتیوب</b>، <b>پینترست</b> یا <b>X (توییتر)</b> بفرستی تا مستقیم برات دانلودش کنم!\n\n"
+        f"حتی می‌تونی بدون اد کردن من تو چت‌ها یا گروه‌ها، ازم استفاده کنی:\n"
+        f"۱. لینک مدیا رو بفرست و روش ریپلای بزن و بنویسی <code>@{bot_username}</code>\n"
+        f"۲. یا مستقیماً بفرست: <code>@{bot_username} &lt;لینک&gt;</code>"
+    )
+    if is_admin:
+        fallback_text += (
+            f"\n\n👑 <b>دستورات مدیریت:</b>\n"
+            f"🔹 <code>/reply</code> - پاسخ مستقیم به پیام پشتیبانی کاربر\n"
+            f"<blockquote>مثال: <code>/reply 12345678 سلام پیام شما رسید</code></blockquote>\n"
+            f"🔹 <code>/admin</code> - باز کردن پنل مدیریت وب"
+        )
+
+    try:
+        # Dynamic Help Assembly via Gemini matching the bot's configured persona
+        client = get_ai_client()
+        model_id = config.runtime_config.get("MODEL_ID", "gemini-2.5-flash")
+        timeout_threshold = float(config.runtime_config.get("TIMEOUT", 10.0))
+        
+        commands_desc = (
+            "- /start: Wakes the bot up / start banter\n"
+            "- /help: Displays this help message\n"
+            "- /tldr: Summarizes the last 150 group chat messages sarcasticly\n"
+            "- /ask <question>: Asks a direct question to Gemini without history\n"
+            "- /transcribe: Transcribes the replied voice note\n"
+            "- /support <msg>: Forward support query to admins (DMs only)\n"
+        )
         if is_admin:
-            help_text += (
-                "\n\n👑 **دستورات مدیریت:**\n"
-                "🔹 /reply <شناسه کاربر> <پیام> : پاسخ مستقیم به پیام کاربر پشتیبانی\n"
-                "🔹 /admin : باز کردن پنل مدیریت وب"
+            commands_desc += (
+                "- /reply <user_id> <msg>: (Admins only) Reply to support query\n"
+                "- /admin: (Admins only) Open the web admin dashboard link\n"
             )
             
-        reply_markup = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔗 سورس ربات (گیت‌هاب)", url="https://github.com/AmiraliNotFound/lati-gemini-bot")]
-        ])
-            
+        prompt = (
+            f"You are the helper system for a Telegram Bot named @{bot_username}.\n"
+            f"Here is the list of bot commands and capabilities:\n"
+            f"{commands_desc}"
+            f"- Auto media downloader: Detects Instagram, YouTube, Pinterest, and Twitter/X links, automatically downloading them. Supports Guest mode via @{bot_username}.\n\n"
+            "TASK:\n"
+            "Write a teasing, sarcastic, and witty Persian help message in Tehrani/lati slang matching the default persona instruction. "
+            "Address the user directly and make it funny.\n"
+            "CRITICAL FORMAT RULES:\n"
+            "1. You MUST use HTML tags: <b>, <i>, <code>, <a>, <blockquote>. DO NOT use markdown like ** or _.\n"
+            "2. To avoid RTL (Right-to-Left) formatting bugs, always put commands inside <code>/command</code> tags.\n"
+            "3. Use <blockquote>...</blockquote> for descriptions or guidelines to make them look premium and prevent text mixing.\n"
+            "4. The output must be strictly valid HTML without any enclosing ```html code blocks or extra text. Output ONLY the raw HTML."
+        )
+        
+        system_instruction = (
+            "You are a sarcastic Persian bot help assistant. You format help text in beautiful, clean HTML. "
+            "Do NOT output markdown. Only valid HTML tags are allowed: <b>, <i>, <code>, <a>, <blockquote>."
+        )
+        
+        response = await asyncio.wait_for(
+            client.models.generate_content(
+                model=model_id,
+                contents=[prompt],
+                config=types.GenerateContentConfig(system_instruction=system_instruction)
+            ),
+            timeout=timeout_threshold
+        )
+        await database.log_api_request(config.DB_FILE, model_id, "text", "success")
+        
+        help_text = response.text.strip()
+        # Clean any wrapping code blocks
+        help_text = re.sub(r"^```html\s*", "", help_text, flags=re.IGNORECASE)
+        help_text = re.sub(r"\s*```$", "", help_text)
+        
         await update.message.reply_text(
             help_text,
             reply_markup=reply_markup,
-            parse_mode="Markdown"
+            parse_mode="HTML"
         )
+    except Exception as e:
+        logger.warning(f"Failed to generate or send dynamic help: {e}. Falling back to local help.")
+        try:
+            await update.message.reply_text(
+                fallback_text,
+                reply_markup=reply_markup,
+                parse_mode="HTML"
+            )
+        except Exception as send_err:
+            await mark_chat_if_send_error(update.message.chat_id, send_err)
 
 async def ask_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
