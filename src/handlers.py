@@ -367,7 +367,7 @@ async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🔹 <code>/support</code> - ارسال پیام به پشتیبانی (فقط در پی‌وی ربات)\n"
         f"<blockquote>مثال: <code>/support سلام ربات، خسته نباشی</code></blockquote>\n\n"
         f"🎥 <b>دانلودر هوشمند و حالت مهمان (Guest Mode):</b>\n"
-        f"کافیه لینک <b>اینستاگرام</b>، <b>یوتیوب</b>، <b>پینترست</b> یا <b>X (توییتر)</b> بفرستی تا مستقیم برات دانلودش کنم!\n\n"
+        f"کافیه لینک <b>اینستاگرام</b>، <b>یوتیوب</b> یا <b>پینترست</b> بفرستی تا مستقیم برات دانلودش کنم!\n\n"
         f"حتی می‌تونی بدون اد کردن من تو چت‌ها یا گروه‌ها، ازم استفاده کنی:\n"
         f"۱. لینک مدیا رو بفرست و روش ریپلای بزن و بنویسی <code>@{bot_username}</code>\n"
         f"۲. یا مستقیماً بفرست: <code>@{bot_username} &lt;لینک&gt;</code>"
@@ -404,20 +404,23 @@ async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"You are the helper system for a Telegram Bot named @{bot_username}.\n"
             f"Here is the list of bot commands and capabilities:\n"
             f"{commands_desc}"
-            f"- Auto media downloader: Detects Instagram, YouTube, Pinterest, and Twitter/X links, automatically downloading them. Supports Guest mode via @{bot_username}.\n\n"
+            f"- Auto media downloader: Detects Instagram, YouTube, and Pinterest links, automatically downloading them. Supports Guest mode via @{bot_username}.\n\n"
             "TASK:\n"
             "Write a teasing, sarcastic, and witty Persian help message in Tehrani/lati slang matching the default persona instruction. "
             "Address the user directly and make it funny.\n"
             "CRITICAL FORMAT RULES:\n"
-            "1. You MUST use HTML tags: <b>, <i>, <code>, <a>, <blockquote>. DO NOT use markdown like ** or _.\n"
-            "2. To avoid RTL (Right-to-Left) formatting bugs, always put commands inside <code>/command</code> tags.\n"
-            "3. Use <blockquote>...</blockquote> for descriptions or guidelines to make them look premium and prevent text mixing.\n"
-            "4. The output must be strictly valid HTML without any enclosing ```html code blocks or extra text. Output ONLY the raw HTML."
+            "1. You MUST ONLY use these Telegram-supported HTML tags: <b>, <i>, <u>, <s>, <code>, <pre>, <a>, <blockquote>. NO OTHER TAGS.\n"
+            "2. NEVER use <p>, <br>, <div>, <span>, <h1>, <h2>, <h3>, <h4>, <h5>, <h6>, <ul>, <ol>, <li>, <hr>, <img>, <table>. These will CRASH the output.\n"
+            "3. Use plain newlines (\\n) for line breaks instead of <br> or <p> tags.\n"
+            "4. To avoid RTL (Right-to-Left) formatting bugs, always put commands inside <code>/command</code> tags.\n"
+            "5. Use <blockquote>...</blockquote> for descriptions or guidelines to make them look premium and prevent text mixing.\n"
+            "6. The output must be strictly valid Telegram HTML without any enclosing ```html code blocks or extra text. Output ONLY the raw Telegram HTML."
         )
         
         system_instruction = (
-            "You are a sarcastic Persian bot help assistant. You format help text in beautiful, clean HTML. "
-            "Do NOT output markdown. Only valid HTML tags are allowed: <b>, <i>, <code>, <a>, <blockquote>."
+            "You are a sarcastic Persian bot help assistant. You format help text in beautiful, clean Telegram HTML. "
+            "Do NOT output markdown. ONLY these HTML tags are allowed: <b>, <i>, <u>, <s>, <code>, <pre>, <a>, <blockquote>. "
+            "NEVER use <p>, <br>, <div>, <span>, <h1>-<h6>, <ul>, <ol>, <li>, <hr>, or any other HTML tag."
         )
         
         response = await asyncio.wait_for(
@@ -434,6 +437,16 @@ async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Clean any wrapping code blocks
         help_text = re.sub(r"^```html\s*", "", help_text, flags=re.IGNORECASE)
         help_text = re.sub(r"\s*```$", "", help_text)
+        
+        # Sanitize: strip ALL tags except the ones Telegram actually supports
+        # Telegram HTML supports: b, i, u, s, code, pre, a, blockquote, tg-spoiler, tg-emoji
+        ALLOWED_TAGS = r'b|i|u|s|code|pre|a|blockquote|tg-spoiler|tg-emoji'
+        # Remove unsupported opening tags (e.g. <p>, <div>, <h1>, <br>, <br/>, <li>, <ul>, <ol>, <span>, <hr>, <hr/>)
+        help_text = re.sub(r'<(?!/?)(?!' + ALLOWED_TAGS + r')(?!/)\w[^>]*/?>', '', help_text)
+        # Remove unsupported closing tags (e.g. </p>, </div>, </h1>)
+        help_text = re.sub(r'</(?!' + ALLOWED_TAGS + r')\w+>', '', help_text)
+        # Collapse excessive blank lines left behind by stripped tags
+        help_text = re.sub(r'\n{3,}', '\n\n', help_text).strip()
         
         await update.message.reply_text(
             help_text,
@@ -1857,7 +1870,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     bot_username = context.bot.username
 
     # Detect Instagram/YouTube/Pinterest links and auto-download in background
-    url_match = re.search(r"(https?://(?:www\.)?(?:instagram\.com|youtube\.com|youtu\.be|x\.com|twitter\.com|pinterest\.com|pin\.it)[^\s]+)", user_text)
+    url_match = re.search(r"(https?://(?:www\.)?(?:instagram\.com|youtube\.com|youtu\.be|pinterest\.com|pin\.it)[^\s]+)", user_text)
     if url_match:
         asyncio.create_task(download_and_send_video(update, context, url_match.group(1)))
         return
