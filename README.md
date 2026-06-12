@@ -4,7 +4,9 @@ A production-grade, highly customizable, and containerized Telegram Bot powered 
 
 The bot is calibrated out-of-the-box with a witty, teasing, and sarcastic Persian persona (Tehrani slang). It supports multimodal processing (images/audio notes) and features automated high-speed media downloader links.
 
----## ✨ Key Features
+---
+
+## ✨ Key Features
 
 ### 1. 🧠 Resilient AI Generation & Failover Stack
 - **Context & Pruning**: Utilizes `aiosqlite` to log message histories and prunes them dynamically based on the configured context limits to keep response latency low.
@@ -45,10 +47,16 @@ The bot is calibrated out-of-the-box with a witty, teasing, and sarcastic Persia
 
 ### 7. 📊 Admin WebApp Dashboard
 A React-based GUI console built directly inside the Telegram interface featuring Dark Mode, glassmorphism design, and smooth slide drawers:
-- **Stats Tab**: View real-time database sizing, active chat metrics, and the 10 most recent scraper/system errors.
-- **Mod Tab**: View all active chats, toggle mute status, set custom roast chances, configure message cooldown windows, override the Gemini model, and select persona presets for specific chats. Includes consolidated VIP/Special User overrides (supporting inline instruction edits).
+- **Stats Tab**: View real-time database sizing, active chat metrics, bandwidth usage stats, and the 10 most recent scraper/system errors.
+- **Mod Tab**: View all active chats, toggle mute status, set custom roast chances, configure message cooldown windows, override the Gemini model and TTS engine, and select persona presets for specific chats. Includes consolidated VIP/Special User overrides (supporting inline instruction edits) and direct alert/leave controls.
 - **Cast Tab**: Instantly send broadcast messages to all group chats and users stored in the database.
-- **Settings Tab**: Dynamically configure context windows, API timeouts, system persona prompts, model fallback queues, TTS engine settings, daily summary schedulers, and custom persona presets.
+- **Settings Tab**: Dynamically configure context windows, API timeouts, system persona prompts, model fallback queues, TTS engine settings (voice pitch, prebuilt voices), daily summary schedulers, and custom persona presets. Includes cookie rotation and yt-dlp scraper updater tools.
+- **Limits Tab**: Real-time monitoring of Gemini API usage with per-model RPM/RPD meters, token limits, error counts, and visual progress bars showing how close you are to quota ceilings.
+
+### 8. 🤖 RTL-Safe Dynamic AI Help
+- **Dynamic Help Assembly**: Automatically queries Gemini on the fly to write a personalized, sarcastic Persian help text matching the bot's configured persona settings.
+- **RTL-Safe HTML Formatting**: Uses strict HTML tags (such as `<code>` for commands and `<blockquote>` for options) to ensure text flows correctly from Right-to-Left (RTL) on all Telegram clients without directional glitches.
+- **Resilient Fallback**: Includes a robust pre-compiled HTML help layout that automatically displays if the API times out or returns syntax errors, ensuring the command is never broken.
 
 ---
 
@@ -60,10 +68,12 @@ lati_gemini_bot/
 │   ├── __init__.py      # Package initializer
 │   ├── config.py        # Settings loader, environment validations, and logging setup
 │   ├── database.py      # Asynchronous database connection, schema setup, stats, and operations
-│   └── handlers.py      # Core Telegram handlers (Admin commands, Text/Multimodal messaging)
+│   ├── handlers.py      # Core Telegram handlers (Admin commands, Text/Multimodal messaging)
+│   └── server.py        # Aiohttp Web API server, CORS, auth, and admin REST endpoints
 ├── webapp/
 │   ├── src/
 │   │   ├── App.jsx      # React WebApp frontend layout and dynamic configuration bindings
+│   │   ├── index.css    # Design system, animations, and responsive styles
 │   │   └── main.jsx     # Frontend entry point
 │   ├── index.html       # WebApp template
 │   └── vite.config.js   # Vite builder configurations
@@ -200,6 +210,11 @@ sudo systemctl start gemini-bot.service
 | `TTS_EDGE_VOICE` | `fa-IR-FaridNeural` | Edge voice name (`fa-IR-FaridNeural`, `fa-IR-DilaraNeural`). |
 | `TTS_FALLBACK_TO_EDGE`| `True` | Fallback to Edge TTS if all Gemini TTS models fail (`True` / `False`). |
 | `RANDOM_ROAST_CHANCE` | `0.02` | Probability (0.0 to 1.0) that the bot roasts an unprovoked message. |
+| `TTS_VOICE_PITCH` | `1.0` | Voice pitch multiplier for Edge TTS (e.g. `0.85` for deep, `1.0` for default). |
+| `MONITOR_LIMIT_RPM` | `15` | Dashboard RPM (Requests Per Minute) threshold for the text API quota meter. |
+| `MONITOR_LIMIT_RPD` | `1500` | Dashboard RPD (Requests Per Day) threshold for the text API quota meter. |
+| `MONITOR_LIMIT_TTS_RPM` | `15` | Dashboard RPM threshold for the Gemini TTS voice API quota meter. |
+| `MONITOR_LIMIT_TTS_RPD` | `1500` | Dashboard RPD threshold for the Gemini TTS voice API quota meter. |
 | `SYSTEM_INSTRUCTION` | *(Persian Persona)* | Custom persona settings / default prompt. |
 | `PERSONA_PRESETS` | *(JSON list)* | Dynamic list of quick selectable prompts config. |
 | `DAILY_SUMMARY_ENABLED`| `False` | Toggles scheduled daily chat summaries. |
@@ -212,7 +227,8 @@ sudo systemctl start gemini-bot.service
 
 ### User Commands
 - `/start`: Cheeky greeting message.
-- `/tldr`: Summarizes group chat topics and drama sarcasticly (Persian slang, up to 150 messages).
+- `/help`: Dynamically generated, persona-aware help guide with RTL-safe HTML formatting.
+- `/tldr`: Summarizes group chat topics and drama sarcastically (Persian slang, up to 150 messages).
 - `/ask <question>`: Directly answers a single question using Gemini without using or loading chat history context.
 - `/transcribe`: Convert replied voice notes to Persian text (groups/DMs).
 - `/support <message>`: Initiate a support ticket with the bot administrators (DMs only).
